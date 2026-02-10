@@ -10,6 +10,18 @@ from zagora.exec import ssh_via_tailscale, tailscale_ssh
 from zagora.registry import RegistryError, registry_get, registry_ls, registry_register, registry_remove
 
 
+BANNER = r"""
+███████╗ █████╗  ██████╗  ██████╗ ██████╗  █████╗
+╚══███╔╝██╔══██╗██╔════╝ ██╔═══██╗██╔══██╗██╔══██╗
+  ███╔╝ ███████║██║  ███╗██║   ██║██████╔╝███████║
+ ███╔╝  ██╔══██║██║   ██║██║   ██║██╔══██╗██╔══██║
+███████╗██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║
+╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+
+zagora — centralized zellij sessions over tailscale
+"""
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -501,9 +513,11 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
     parser = build_parser()
 
     sys.stdout.write(
-        "zagora interactive mode\n"
-        "Commands: ls, open, attach(a), kill, doctor, install-zellij\n"
-        "Type 'help' for full help, 'exit' to quit.\n\n"
+        BANNER
+        + "\n"
+        + "interactive mode\n"
+        + "Commands: ls, open, attach(a), kill, doctor, install-zellij\n"
+        + "Type 'help' for full help, 'exit' to quit.\n\n"
     )
 
     while True:
