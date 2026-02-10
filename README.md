@@ -1,0 +1,376 @@
+```
+███████╗ █████╗  ██████╗  ██████╗ ██████╗  █████╗
+╚══███╔╝██╔══██╗██╔════╝ ██╔═══██╗██╔══██╗██╔══██╗
+  ███╔╝ ███████║██║  ███╗██║   ██║██████╔╝███████║
+ ███╔╝  ██╔══██║██║   ██║██║   ██║██╔══██╗██╔══██║
+███████╗██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║
+╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+
+zagora — centralized zellij sessions over tailscale
+```
+
+跨机器 **zellij** 终端会话的中心化管理工具，基于 Tailscale 组网。
+
+在家里操作办公室电脑、在办公室继续家里的工作 —— 所有机器上的 shell session 统一管理，断点续"做"。
+
+## 架构
+
+```
+                         ┌──────────────────────┐
+                         │   zagora server       │
+                         │   (registry, HTTP)    │
+                         │   存储 session 元信息  │
+                         └──────┬───────┬────────┘
+                           HTTP │       │ HTTP
+                   ┌────────────┘       └────────────┐
+                   │                                 │
+            ┌──────┴──────┐                   ┌──────┴──────┐
+            │  客户端 A    │                   │  客户端 B    │
+            │  (家里笔记本)│                   │  (办公室电脑)│
+            └──────┬──────┘                   └──────┬──────┘
+                   │ SSH (tailscale)                  │ SSH
+                   │                                 │
+            ┌──────┴──────┐  ┌──────────┐  ┌────────┴─────┐
+            │  目标机器    │  │ 目标机器  │  │  目标机器     │
+            │  v100       │  │ t14      │  │  jdvm        │
+            │  (zellij)   │  │ (zellij) │  │  (zellij)    │
+            └─────────────┘  └──────────┘  └──────────────┘
+```
+
+- **Server**（`zagora serve`）：轻量 HTTP JSON API，仅存储 session 元信息（名称、所在机器、状态）。不转发任何终端流量。
+- **Client**（`zagora open/attach/ls/kill`）：通过 HTTP 与 server 交互查询/注册 session，然后通过 SSH 直连目标机器操作 zellij。
+- **目标机器**：运行 zellij 的远程 Linux 机器，通过 Tailscale 可达。
+
+### 核心概念
+
+| 概念 | 说明 |
+|------|------|
+| `--host` | zagora server 地址（HTTP），如 `http://v100:9876` |
+| `-c` / `--connect` | 目标机器（SSH 目标），如 `v100`、`t14` |
+| session | 目标机器上的一个 zellij 会话，通过 server 注册和查询 |
+
+### 设计特点
+
+- **零流量代理**：Server 只做"电话簿"，交互式终端流量走 Client → 目标机器直连 SSH，无额外延迟。
+- **断点续做**：zellij session 持久化在目标机器上，任何客户端随时 attach 恢复。
+- **零外部依赖**：纯 Python 标准库（`http.server`、`urllib.request`），无需 pip install 任何第三方包。
+- **Tailscale 组网**：利用 Tailscale 的 MagicDNS，用机器名即可访问，无需记 IP。
+
+## 前提条件
+
+| 角色 | 要求 |
+|------|------|
+| **客户端** | `tailscale` + `ssh`，已加入 tailnet |
+| **Server** | Python ≥ 3.11，已加入 tailnet |
+| **目标机器** | `zellij` 已安装（可用 `zagora install-zellij` 远程安装） |
+
+## 安装
+
+### 一键安装（推荐，用于客户端机器）
+
+> 说明：会在本机创建独立 venv：`~/.local/share/zagora/venv`，并把 `zagora` 链接到 `~/.local/bin/zagora`。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/followcat/zagora/main/install.sh | bash
+```
+
+### 开发安装（本仓库）
+
+```bash
+pip install -e .
+```
+
+## 交互模式（REPL）
+
+如果你希望像"进入一个控制台"一样操作：
+
+```bash
+zagora --host http://t14:9876
+# 或
+zagora --host http://t14:9876 i
+
+zagora> ls
+zagora> open -c v100 -n NT
+zagora> a -n NT
+zagora> kill -n NT
+zagora> exit
+```
+
+> 注意：`open/attach` 会进入交互式 zellij（相当于离开 REPL）。
+
+## 快速开始
+
+### 1. 启动 Server
+
+选一台常驻开机的机器（如 `v100`）运行 server：
+
+```bash
+zagora serve --port 9876
+# 监听 0.0.0.0:9876，session 数据保存在 ~/.local/share/zagora/sessions.json
+```
+
+带 token 鉴权：
+
+```bash
+zagora serve --port 9876 --token my-secret
+```
+
+### 2. 配置客户端
+
+三种方式（优先级从高到低）：
+
+**方式 A：命令行参数**
+
+```bash
+zagora --host http://v100:9876 ls
+```
+
+**方式 B：环境变量**
+
+```bash
+export ZAGORA_HOST=http://v100:9876
+export ZAGORA_TOKEN=my-secret    # 如果 server 开了 token
+```
+
+**方式 C：配置文件** `~/.config/zagora/config.json`
+
+```json
+{
+  "server": "http://v100:9876",
+  "token": "my-secret"
+}
+```
+
+### 3. 远程安装 zellij（首次使用目标机器时）
+
+```bash
+zagora install-zellij -c v100
+# 在 v100 上下载 zellij 到 ~/.local/bin/（无需 sudo）
+```
+
+支持 x86_64 和 aarch64 Linux。
+
+### 4. 创建 session
+
+```bash
+zagora open -c v100 --name Work
+# 1. SSH 到 v100
+# 2. 创建（或 attach）名为 "Work" 的 zellij session
+# 3. 向 server 注册该 session
+# 4. 进入交互式终端
+```
+
+### 5. 查看所有 session
+
+从任意客户端查询 server：
+
+```bash
+zagora ls
+#   Work    v100    running
+#   Debug   t14     running
+```
+
+按目标机器过滤：
+
+```bash
+zagora ls -c v100
+#   Work    v100    running
+```
+
+### 6. 从另一台机器恢复 session
+
+```bash
+zagora attach --name Work
+# 自动从 server 查到 "Work" 在 v100 上，然后 SSH attach
+```
+
+也可以显式指定目标机器：
+
+```bash
+zagora attach --name Work -c v100
+```
+
+### 7. 杀死 session
+
+```bash
+zagora kill --name Work
+# 1. 查 server 得知 "Work" 在 v100
+# 2. SSH 到 v100 执行 zellij kill-session Work
+# 3. 从 server 删除记录
+```
+
+### 8. 环境检查
+
+```bash
+zagora doctor
+#   ✓ tailscale
+#   ✓ ssh
+#   tailscale 1.90.9
+#   ✓ server http://v100:9876
+```
+
+## 完整命令参考
+
+```
+zagora [--host HOST] [--token TOKEN] [--transport {auto,tailscale,ssh}] <command>
+
+命令:
+  serve                启动 zagora registry server
+  open                 在目标机器上创建并 attach 一个 zellij session
+  attach               attach 到已有 session（自动发现目标机器）
+  ls                   列出 server 上注册的所有 session
+  kill                 杀死一个 session（自动发现目标机器）
+  doctor               检查本地工具和 server 连通性
+  install-zellij       在远程机器上安装 zellij
+```
+
+### `zagora serve`
+
+```bash
+zagora serve [--port PORT] [--bind BIND] [--token TOKEN]
+```
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--port` | `9876` | 监听端口 |
+| `--bind` | `0.0.0.0` | 绑定地址 |
+| `--token` | 无 | 鉴权 token，设置后所有请求需带此 token |
+
+### `zagora open`
+
+```bash
+zagora open -c <target> --name <session_name>
+```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `-c` / `--connect` | ✅ | 目标机器（如 `v100`） |
+| `--name` | ✅ | session 名称 |
+
+### `zagora attach`
+
+```bash
+zagora attach --name <session_name> [-c <target>]
+```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--name` | ✅ | session 名称 |
+| `-c` / `--connect` | ❌ | 目标机器（不指定则从 server 自动查询） |
+
+### `zagora ls`
+
+```bash
+zagora ls [-c <target>]
+```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `-c` / `--connect` | ❌ | 按目标机器过滤 |
+
+### `zagora kill`
+
+```bash
+zagora kill --name <session_name> [-c <target>]
+```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--name` | ✅ | session 名称 |
+| `-c` / `--connect` | ❌ | 目标机器（不指定则从 server 自动查询） |
+
+### `zagora install-zellij`
+
+```bash
+zagora install-zellij -c <target> [--dir DIR]
+```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `-c` / `--connect` | ✅ | 目标机器 |
+| `--dir` | ❌ | 安装目录（默认 `~/.local/bin`） |
+
+## Server API
+
+| Method | Path | Body / Query | 说明 |
+|--------|------|-------------|------|
+| `GET` | `/sessions` | `?host=xxx`（可选过滤） | 列出所有 session |
+| `GET` | `/sessions/<name>` | — | 获取单个 session 详情 |
+| `POST` | `/sessions` | `{"name": "...", "host": "...", "status": "running"}` | 注册或更新 session |
+| `DELETE` | `/sessions/<name>` | — | 删除 session |
+| `GET` | `/health` | — | 健康检查 |
+
+鉴权：如果 server 启动时设了 `--token`，所有请求需带 `Authorization: Bearer <token>` header。
+
+Session 数据结构：
+
+```json
+{
+  "name": "Work",
+  "host": "v100",
+  "status": "running",
+  "created_at": "2026-02-10T08:00:00+00:00",
+  "last_seen": "2026-02-10T08:30:00+00:00"
+}
+```
+
+## SSH 传输方式
+
+zagora 通过 Tailscale 网络连接目标机器，支持两种 SSH 传输模式：
+
+| 模式 | 命令 | 说明 |
+|------|------|------|
+| `auto`（默认） | — | 优先 `tailscale ssh`，遇 host key 问题自动回退 |
+| `tailscale` | `--transport tailscale` | 强制使用 `tailscale ssh`（基于 tailnet ACL 身份认证） |
+| `ssh` | `--transport ssh` | 使用系统 `ssh` + `ProxyCommand=tailscale nc %h %p` |
+
+`auto` 模式处理逻辑：先尝试 `tailscale ssh`（利用 tailnet 身份认证，无需密码/密钥），如果遇到 host key 验证失败则自动回退到系统 `ssh`（设置 `StrictHostKeyChecking=accept-new`）。
+
+## 典型场景
+
+### 场景一：办公室 → 家里
+
+```bash
+# 在办公室创建一个开发 session
+zagora open -c office-pc --name dev
+
+# 回家后，从家里的笔记本恢复
+zagora attach --name dev
+# 所有终端状态完好保留
+```
+
+### 场景二：多机器并行工作
+
+```bash
+# 在 GPU 服务器上跑训练
+zagora open -c v100 --name training
+
+# 在另一台机器上跑测试
+zagora open -c t14 --name testing
+
+# 一条命令看所有 session
+zagora ls
+#   training    v100    running
+#   testing     t14     running
+```
+
+## 项目结构
+
+```
+zagora/
+├── __init__.py
+├── __main__.py        # python -m zagora 入口
+├── cli.py             # CLI 主逻辑：参数解析、各子命令实现
+├── config.py          # 配置加载：server/token 解析
+├── exec.py            # 底层执行：SSH 传输、进程管理
+├── registry.py        # HTTP 客户端：与 server 交互
+└── server.py          # HTTP 服务端：session 注册表
+tests/
+├── test_commands.py   # CLI 参数解析测试
+├── test_config.py     # 配置解析测试
+└── test_server.py     # Server + Registry 集成测试
+```
+
+## License
+
+MIT
