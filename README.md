@@ -326,50 +326,6 @@ zagora 通过 Tailscale 网络连接目标机器，支持两种 SSH 传输模式
 
 `auto` 模式处理逻辑：先尝试 `tailscale ssh`（利用 tailnet 身份认证，无需密码/密钥），如果遇到 host key 验证失败则自动回退到系统 `ssh`（设置 `StrictHostKeyChecking=accept-new`）。
 
-## 典型场景
-
-### 场景一：办公室 → 家里
-
-```bash
-# 在办公室创建一个开发 session
-zagora open -c office-pc --name dev
-
-# 回家后，从家里的笔记本恢复
-zagora attach --name dev
-# 所有终端状态完好保留
-```
-
-### 场景二：多机器并行工作
-
-```bash
-# 在 GPU 服务器上跑训练
-zagora open -c v100 --name training
-
-# 在另一台机器上跑测试
-zagora open -c t14 --name testing
-
-# 一条命令看所有 session
-zagora ls
-#   training    v100    running
-#   testing     t14     running
-```
-
-## 项目结构
-
-```
-zagora/
-├── __init__.py
-├── __main__.py        # python -m zagora 入口
-├── cli.py             # CLI 主逻辑：参数解析、各子命令实现
-├── config.py          # 配置加载：server/token 解析
-├── exec.py            # 底层执行：SSH 传输、进程管理
-├── registry.py        # HTTP 客户端：与 server 交互
-└── server.py          # HTTP 服务端：session 注册表
-tests/
-├── test_commands.py   # CLI 参数解析测试
-├── test_config.py     # 配置解析测试
-└── test_server.py     # Server + Registry 集成测试
-```
 
 ## License
 
