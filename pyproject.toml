@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zagora"
+version = "0.0.1"
+description = "Manage zellij sessions over tailscale ssh"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "zagora contributors" }]
+dependencies = []
+
+[project.scripts]
+zagora = "zagora.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["zagora*"]
