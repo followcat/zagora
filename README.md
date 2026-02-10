@@ -41,20 +41,6 @@ zagora — centralized zellij sessions over tailscale
 - **Client**（`zagora open/attach/ls/kill`）：通过 HTTP 与 server 交互查询/注册 session，然后通过 SSH 直连目标机器操作 zellij。
 - **目标机器**：运行 zellij 的远程 Linux 机器，通过 Tailscale 可达。
 
-### 核心概念
-
-| 概念 | 说明 |
-|------|------|
-| `--host` | zagora server 地址（HTTP），如 `http://v100:9876` |
-| `-c` / `--connect` | 目标机器（SSH 目标），如 `v100`、`t14` |
-| session | 目标机器上的一个 zellij 会话，通过 server 注册和查询 |
-
-### 设计特点
-
-- **零流量代理**：Server 只做"电话簿"，交互式终端流量走 Client → 目标机器直连 SSH，无额外延迟。
-- **断点续做**：zellij session 持久化在目标机器上，任何客户端随时 attach 恢复。
-- **零外部依赖**：纯 Python 标准库（`http.server`、`urllib.request`），无需 pip install 任何第三方包。
-- **Tailscale 组网**：利用 Tailscale 的 MagicDNS，用机器名即可访问，无需记 IP。
 
 ## 前提条件
 
