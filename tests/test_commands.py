@@ -92,6 +92,12 @@ class TestParser(unittest.TestCase):
         self.assertEqual(args.cmd, "serve")
         self.assertEqual(args.port, 1234)
 
+    def test_serve_health_opts(self):
+        p = build_parser()
+        args = p.parse_args(["serve", "--health-interval", "10", "--health-timeout", "1.5"])
+        self.assertEqual(args.health_interval, 10.0)
+        self.assertEqual(args.health_timeout, 1.5)
+
     def test_completion_parses(self):
         p = build_parser()
         args = p.parse_args(["completion", "--shell", "bash"])

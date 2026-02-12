@@ -147,7 +147,7 @@ zagora refresh --no-prune-unreachable
 选一台常驻开机的机器（如 `v100`）运行 server：
 
 ```bash
-zagora serve --port 9876
+zagora serve --port 9876 --health-interval 30
 # 监听 0.0.0.0:9876，session 数据保存在 ~/.local/share/zagora/sessions.json
 ```
 
@@ -208,15 +208,15 @@ zagora open -c v100 --name Work
 
 ```bash
 zagora ls
-#   Work    v100    running
-#   Debug   t14     running
+#   Work    v100    running    host:up
+#   Debug   t14     running    host:down
 ```
 
 按目标机器过滤：
 
 ```bash
 zagora ls -c v100
-#   Work    v100    running
+#   Work    v100    running    host:up
 ```
 
 ### 6. 从另一台机器恢复 session
@@ -269,7 +269,7 @@ zagora [--host HOST] [--token TOKEN] [--transport {auto,tailscale,ssh}] <command
 ### `zagora serve`
 
 ```bash
-zagora serve [--port PORT] [--bind BIND] [--token TOKEN]
+zagora serve [--port PORT] [--bind BIND] [--token TOKEN] [--health-interval SEC] [--health-timeout SEC]
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -277,6 +277,8 @@ zagora serve [--port PORT] [--bind BIND] [--token TOKEN]
 | `--port` | `9876` | 监听端口 |
 | `--bind` | `0.0.0.0` | 绑定地址 |
 | `--token` | 无 | 鉴权 token，设置后所有请求需带此 token |
+| `--health-interval` | `30` | 定期检查 host 可达性的间隔秒数（`0` 为关闭） |
+| `--health-timeout` | `2` | 单次 host 可达性检查超时秒数 |
 
 ### `zagora open`
 

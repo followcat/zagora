@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 
@@ -22,6 +23,35 @@ def _data_path() -> Path:
 
 def _history_path() -> Path:
     return _data_dir() / "history.json"
+
+
+def _split_host_port(target: str, default_port: int = 22) -> tuple[str, int]:
+    s = (target or "").strip()
+    if "@" in s:
+        s = s.rsplit("@", 1)[1]
+    if s.startswith("[") and "]" in s:
+        idx = s.find("]")
+        host = s[1:idx]
+        rest = s[idx + 1 :]
+        if rest.startswith(":") and rest[1:].isdigit():
+            return host, int(rest[1:])
+        return host, default_port
+    if s.count(":") == 1:
+        host, port_s = s.rsplit(":", 1)
+        if port_s.isdigit():
+            return host, int(port_s)
+    return s, default_port
+
+
+def _probe_host(host: str, timeout: float = 2.0) -> bool:
+    target, port = _split_host_port(host, default_port=22)
+    if not target:
+        return False
+    try:
+        with socket.create_connection((target, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 class SessionStore:
@@ -67,9 +97,15 @@ class SessionStore:
         with self._lock:
             existing = self._sessions.get(name)
             if existing:
+                prev_host = existing.get("host")
                 existing["host"] = host
                 existing["status"] = status
                 existing["last_seen"] = now
+                existing.setdefault("host_reachable", None)
+                existing.setdefault("health_checked_at", None)
+                if prev_host != host:
+                    existing["host_reachable"] = None
+                    existing["health_checked_at"] = None
             else:
                 self._sessions[name] = {
                     "name": name,
@@ -77,6 +113,8 @@ class SessionStore:
                     "status": status,
                     "created_at": now,
                     "last_seen": now,
+                    "host_reachable": None,
+                    "health_checked_at": None,
                 }
             self._save()
             return dict(self._sessions[name])
@@ -88,6 +126,20 @@ class SessionStore:
                 self._save()
                 return True
             return False
+
+    def set_host_reachable(self, name: str, reachable: bool) -> bool:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            s = self._sessions.get(name)
+            if not s:
+                return False
+            new_value = bool(reachable)
+            if s.get("host_reachable") == new_value:
+                return False
+            s["host_reachable"] = new_value
+            s["health_checked_at"] = now
+            self._save()
+            return True
 
 
 class HistoryStore:
@@ -135,6 +187,55 @@ class HistoryStore:
             if len(self._lines) > self._max_len:
                 self._lines = self._lines[-self._max_len :]
             self._save()
+
+
+class HealthChecker:
+    """Periodically checks whether registered hosts are reachable."""
+
+    def __init__(
+        self,
+        store: SessionStore,
+        interval: float = 30.0,
+        timeout: float = 2.0,
+        probe_fn: Callable[[str, float], bool] = _probe_host,
+    ) -> None:
+        self._store = store
+        self._interval = max(1.0, float(interval))
+        self._timeout = max(0.1, float(timeout))
+        self._probe_fn = probe_fn
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="zagora-health-check")
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def join(self, timeout: float | None = None) -> None:
+        self._thread.join(timeout=timeout)
+
+    def run_once(self) -> None:
+        host_cache: dict[str, bool] = {}
+        for s in self._store.list():
+            name = s.get("name")
+            host = s.get("host")
+            if not isinstance(name, str) or not isinstance(host, str) or not host:
+                continue
+            if host not in host_cache:
+                try:
+                    host_cache[host] = bool(self._probe_fn(host, self._timeout))
+                except Exception:
+                    host_cache[host] = False
+            self._store.set_host_reachable(name, host_cache[host])
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.run_once()
+            except Exception:
+                pass
+            self._stop.wait(self._interval)
 
 
 def _make_handler(store: SessionStore, history: HistoryStore, token: str | None):
@@ -254,14 +355,29 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
     return Handler
 
 
-def run_server(port: int = 9876, token: str | None = None, bind: str = "0.0.0.0") -> None:
+def run_server(
+    port: int = 9876,
+    token: str | None = None,
+    bind: str = "0.0.0.0",
+    health_interval: float = 30.0,
+    health_timeout: float = 2.0,
+) -> None:
     store = SessionStore()
     history = HistoryStore()
     handler = _make_handler(store, history, token)
     server = HTTPServer((bind, port), handler)
+    checker: HealthChecker | None = None
+    if health_interval > 0:
+        checker = HealthChecker(store, interval=health_interval, timeout=health_timeout)
+        checker.start()
     print(f"zagora server listening on {bind}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nshutting down")
+    finally:
         server.shutdown()
+        server.server_close()
+        if checker is not None:
+            checker.stop()
+            checker.join(timeout=2)

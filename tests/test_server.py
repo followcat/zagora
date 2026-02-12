@@ -15,7 +15,7 @@ from zagora.registry import (
     registry_register,
     registry_remove,
 )
-from zagora.server import HistoryStore, SessionStore, _make_handler
+from zagora.server import HealthChecker, HistoryStore, SessionStore, _make_handler
 
 
 def _start_server(store, history, token=None, port=0):
@@ -59,6 +59,32 @@ class TestSessionStore(unittest.TestCase):
             store.register("Work", "v100")
             store2 = SessionStore(p)
             self.assertEqual(len(store2.list()), 1)
+
+    def test_set_host_reachable(self):
+        with TemporaryDirectory() as d:
+            store = SessionStore(Path(d) / "sessions.json")
+            store.register("Work", "v100")
+            self.assertTrue(store.set_host_reachable("Work", True))
+            info = store.get("Work")
+            self.assertTrue(info["host_reachable"])
+            self.assertIsNotNone(info["health_checked_at"])
+
+
+class TestHealthChecker(unittest.TestCase):
+    def test_run_once_updates_host_reachability(self):
+        with TemporaryDirectory() as d:
+            store = SessionStore(Path(d) / "sessions.json")
+            store.register("A", "up-host")
+            store.register("B", "down-host")
+
+            def _fake_probe(host: str, timeout: float) -> bool:
+                return host == "up-host"
+
+            checker = HealthChecker(store, interval=999, timeout=0.1, probe_fn=_fake_probe)
+            checker.run_once()
+
+            self.assertTrue(store.get("A")["host_reachable"])
+            self.assertFalse(store.get("B")["host_reachable"])
 
 
 class TestServerAndRegistry(unittest.TestCase):

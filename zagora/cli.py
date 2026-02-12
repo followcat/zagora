@@ -357,7 +357,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
 
     # Per-subcommand options (short + long)
     opts: dict[str, list[str]] = {
-        "serve": ["--port", "--bind", "--token"],
+        "serve": ["--port", "--bind", "--token", "--health-interval", "--health-timeout"],
         "open": ["-c", "--connect", "-n", "--name", *global_opts],
         "attach": ["-c", "--connect", "-n", "--name", *global_opts],
         "a": ["-c", "--connect", "-n", "--name", *global_opts],
@@ -461,7 +461,13 @@ complete -F _zagora_complete zagora
 
 def cmd_serve(args: argparse.Namespace) -> int:
     from zagora.server import run_server
-    run_server(port=args.port, token=_token(args), bind=args.bind)
+    run_server(
+        port=args.port,
+        token=_token(args),
+        bind=args.bind,
+        health_interval=args.health_interval,
+        health_timeout=args.health_timeout,
+    )
     return 0
 
 
@@ -531,7 +537,9 @@ def cmd_ls(args: argparse.Namespace) -> int:
         status = s.get("status", "?")
         host = s.get("host", "?")
         name = s.get("name", "?")
-        sys.stdout.write(f"  {name}\t{host}\t{status}\n")
+        reach = s.get("host_reachable")
+        reach_s = "?" if reach is None else ("up" if bool(reach) else "down")
+        sys.stdout.write(f"  {name}\t{host}\t{status}\thost:{reach_s}\n")
     return 0
 
 
@@ -894,6 +902,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int, default=9876, help="listen port (default: 9876)")
     p_serve.add_argument("--bind", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
     p_serve.add_argument("--token", default=argparse.SUPPRESS, help="auth token")
+    p_serve.add_argument(
+        "--health-interval",
+        type=float,
+        default=30.0,
+        help="host health-check interval seconds; 0 to disable (default: 30)",
+    )
+    p_serve.add_argument(
+        "--health-timeout",
+        type=float,
+        default=2.0,
+        help="host health-check timeout seconds (default: 2)",
+    )
     p_serve.set_defaults(func=cmd_serve)
 
     # open
