@@ -129,6 +129,15 @@ class TestServerAndRegistry(unittest.TestCase):
         self.assertEqual(len(sessions), 1)
         self.assertEqual(sessions[0]["name"], "A")
 
+    def test_get_remove_name_with_control_chars(self):
+        bad_name = "\x1b[32;1mNT\x1b[m"
+        registry_register(self.url, bad_name, "v100")
+        info = registry_get(self.url, bad_name)
+        self.assertEqual(info["name"], bad_name)
+        registry_remove(self.url, bad_name)
+        with self.assertRaises(RegistryError):
+            registry_get(self.url, bad_name)
+
 
 class TestServerAuth(unittest.TestCase):
     def setUp(self):

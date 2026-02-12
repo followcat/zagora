@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 def _data_dir() -> Path:
@@ -285,7 +285,7 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
                 return
 
             if u.path.startswith("/sessions/"):
-                name = u.path.split("/sessions/", 1)[1]
+                name = unquote(u.path.split("/sessions/", 1)[1])
                 s = store.get(name)
                 if s:
                     self._json_response(200, s)
@@ -343,8 +343,9 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
         def do_DELETE(self):  # noqa: N802
             if not self._check_token():
                 return
-            if self.path.startswith("/sessions/"):
-                name = self.path.split("/sessions/", 1)[1]
+            u = urlparse(self.path)
+            if u.path.startswith("/sessions/"):
+                name = unquote(u.path.split("/sessions/", 1)[1])
                 if store.remove(name):
                     self._json_response(200, {"deleted": name})
                 else:

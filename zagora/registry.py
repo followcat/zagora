@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -29,6 +30,8 @@ def _request(
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode())
+    except ValueError as e:
+        raise RegistryError(f"invalid request: {e}") from None
     except urllib.error.HTTPError as e:
         try:
             detail = json.loads(e.read().decode())
@@ -50,12 +53,12 @@ def _base(server: str) -> str:
 def registry_ls(server: str, token: str | None = None, host: str | None = None) -> list[dict[str, Any]]:
     url = f"{_base(server)}/sessions"
     if host:
-        url += f"?host={host}"
+        url += "?" + urllib.parse.urlencode({"host": host})
     return _request(url, token=token)
 
 
 def registry_get(server: str, name: str, token: str | None = None) -> dict[str, Any]:
-    url = f"{_base(server)}/sessions/{name}"
+    url = f"{_base(server)}/sessions/{urllib.parse.quote(name, safe='')}"
     return _request(url, token=token)
 
 
@@ -71,7 +74,7 @@ def registry_register(
 
 
 def registry_remove(server: str, name: str, token: str | None = None) -> dict[str, Any]:
-    url = f"{_base(server)}/sessions/{name}"
+    url = f"{_base(server)}/sessions/{urllib.parse.quote(name, safe='')}"
     return _request(url, method="DELETE", token=token)
 
 
