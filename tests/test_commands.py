@@ -1,5 +1,9 @@
+import argparse
+import subprocess
 import unittest
+from unittest.mock import patch
 
+import zagora.cli as cli
 from zagora.cli import build_parser
 from zagora.exec import ssh_via_tailscale, tailscale_ssh
 
@@ -16,6 +20,25 @@ class TestCommands(unittest.TestCase):
         self.assertIn("-Y", argv)
         self.assertIn("ProxyCommand=tailscale nc %h %p", argv)
         self.assertIn("StrictHostKeyChecking=accept-new", argv)
+
+    def test_exec_remote_interactive_uses_subprocess_in_repl(self):
+        args = argparse.Namespace(transport="auto", _repl_mode=True)
+        runs = [
+            subprocess.CompletedProcess(args=["tailscale", "ssh"], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["tailscale", "ssh"], returncode=0, stdout="", stderr=""),
+        ]
+        with patch("subprocess.run", side_effect=runs) as run_mock, patch("zagora.cli.exec_interactive") as exec_mock:
+            rc = cli._exec_remote_interactive(args, "C", ["zellij", "attach", "Work"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(run_mock.call_count, 2)
+            exec_mock.assert_not_called()
+
+    def test_exec_remote_interactive_execs_outside_repl(self):
+        args = argparse.Namespace(transport="tailscale")
+        with patch("zagora.cli.exec_interactive") as exec_mock:
+            rc = cli._exec_remote_interactive(args, "C", ["zellij", "attach", "Work"])
+            self.assertEqual(rc, 0)
+            self.assertTrue(exec_mock.called)
 
 
 class TestParser(unittest.TestCase):

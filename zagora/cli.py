@@ -217,14 +217,23 @@ def _run_remote_capture(args: argparse.Namespace, host: str, remote_argv: list[s
 
 
 def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: list[str]) -> int:
+    import subprocess
+
+    repl_mode = bool(getattr(args, "_repl_mode", False))
+
+    def _run_or_exec(argv: list[str]) -> int:
+        if repl_mode:
+            return subprocess.run(argv, check=False).returncode
+        exec_interactive(argv)
+        return 0
+
     t = _transport(args)
     if t == "ssh":
-        exec_interactive(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
     if t == "tailscale":
-        exec_interactive(tailscale_ssh(host, remote_argv, tty=True))
+        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
 
     # auto: quick preflight to detect host-key issues (no password prompt)
-    import subprocess
     try:
         pre = subprocess.run(
             tailscale_ssh(host, ["true"]),
@@ -235,16 +244,16 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
         )
     except subprocess.TimeoutExpired:
         # tailscale ssh hung (probably waiting for something); fall back
-        exec_interactive(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
 
     if pre.returncode == 0:
-        exec_interactive(tailscale_ssh(host, remote_argv, tty=True))
+        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
     if _hostkey_problem(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh host key unavailable; falling back to system ssh\n")
-        exec_interactive(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
 
     # other failure (e.g. host unreachable) — still try ssh fallback
-    exec_interactive(ssh_via_tailscale(host, remote_argv, tty=True))
+    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
 
 
 # ---------------------------------------------------------------------------
@@ -1053,6 +1062,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             args2 = parser.parse_args(argv2)
             if not getattr(args2, "cmd", None):
                 continue
+            setattr(args2, "_repl_mode", True)
             func = getattr(args2, "func", None)
             if not func:
                 sys.stderr.write("zagora: unknown command\n")

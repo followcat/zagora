@@ -118,7 +118,7 @@ zagora> kill -n NT
 zagora> exit
 ```
 
-> 注意：`open/attach` 会进入交互式 zellij（相当于离开 REPL）。
+> 注意：`open/attach` 会进入交互式 zellij；退出远端会话后会返回 REPL。
 >
 > REPL 输入历史会保存到 server（不同机器/不同终端共享，↑/↓ 可翻阅），并支持 Tab 自动补全命令。
 
