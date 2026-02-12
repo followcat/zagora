@@ -255,7 +255,7 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 def cmd_completion(args: argparse.Namespace) -> int:
     shell = args.shell
 
-    subs = "serve open attach a ls kill doctor install-zellij interactive i completion".split()
+    subs = "serve open attach a ls kill refresh doctor install-zellij interactive i completion".split()
     global_opts = "--host --token --transport".split()
 
     # Per-subcommand options (short + long)
@@ -266,6 +266,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
         "a": ["-c", "--connect", "-n", "--name", *global_opts],
         "ls": ["-c", "--connect", *global_opts],
         "kill": ["-c", "--connect", "-n", "--name", *global_opts],
+        "refresh": ["-c", "--connect", "--prune", "--prune-unreachable", "--dry-run", *global_opts],
         "doctor": [*global_opts],
         "install-zellij": ["-c", "--connect", "--dir", "--transport"],
         "interactive": [*global_opts],
@@ -459,6 +460,107 @@ def cmd_kill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refresh(args: argparse.Namespace) -> int:
+    require_cmd("tailscale")
+    require_cmd("ssh")
+    server = _server_or_exit(args)
+    token = _token(args)
+    host_filter = getattr(args, "connect", None)
+    prune = getattr(args, "prune", False)
+    prune_unreachable = getattr(args, "prune_unreachable", False)
+    dry_run = getattr(args, "dry_run", False)
+
+    try:
+        sessions = registry_ls(server, token=token, host=host_filter)
+    except RegistryError as e:
+        sys.stderr.write(f"zagora: {e}\n")
+        return 1
+
+    if not sessions:
+        sys.stdout.write("(no sessions)\n")
+        return 0
+
+    removed = 0
+    updated = 0
+
+    for s in sessions:
+        name = s.get("name")
+        host = s.get("host")
+        if not isinstance(name, str) or not isinstance(host, str) or not name or not host:
+            continue
+
+        p = _run_remote_capture(args, host, _zellij_remote(["ls"]))
+        if p.returncode != 0:
+            # host unreachable (or zellij missing)
+            if prune_unreachable and prune:
+                sys.stdout.write(f"  - {name}\t{host}\tunreachable -> remove\n")
+                if not dry_run:
+                    try:
+                        registry_remove(server, name, token=token)
+                        removed += 1
+                    except RegistryError:
+                        pass
+                continue
+
+            new_status = "unreachable"
+            if s.get("status") != new_status:
+                sys.stdout.write(f"  ~ {name}\t{host}\t{new_status}\n")
+                if not dry_run:
+                    try:
+                        registry_register(server, name, host, token=token, status=new_status)
+                        updated += 1
+                    except RegistryError:
+                        pass
+            continue
+
+        found = False
+        for line in (p.stdout or "").splitlines():
+            parts = line.strip().split()
+            if not parts:
+                continue
+            if parts[0] == name:
+                found = True
+                break
+
+        if found:
+            new_status = "running"
+            if s.get("status") != new_status:
+                sys.stdout.write(f"  ~ {name}\t{host}\t{new_status}\n")
+                if not dry_run:
+                    try:
+                        registry_register(server, name, host, token=token, status=new_status)
+                        updated += 1
+                    except RegistryError:
+                        pass
+            continue
+
+        # reachable but session missing
+        if prune:
+            sys.stdout.write(f"  - {name}\t{host}\tmissing -> remove\n")
+            if not dry_run:
+                try:
+                    registry_remove(server, name, token=token)
+                    removed += 1
+                except RegistryError:
+                    pass
+        else:
+            new_status = "missing"
+            if s.get("status") != new_status:
+                sys.stdout.write(f"  ~ {name}\t{host}\t{new_status}\n")
+                if not dry_run:
+                    try:
+                        registry_register(server, name, host, token=token, status=new_status)
+                        updated += 1
+                    except RegistryError:
+                        pass
+
+    if dry_run:
+        sys.stdout.write(f"dry-run: would update {updated}, remove {removed}\n")
+    else:
+        sys.stdout.write(f"updated {updated}, removed {removed}\n")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     ok = True
     for cmd in ("tailscale", "ssh"):
@@ -594,6 +696,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_kill.add_argument("-n", "--name", required=True, help="session name")
     p_kill.set_defaults(func=cmd_kill)
 
+    # refresh
+    p_ref = sp.add_parser("refresh", help="refresh session status; optionally prune missing entries")
+    _add_common(p_ref)
+    p_ref.add_argument("-c", "--connect", help="only refresh sessions on a specific host")
+    p_ref.add_argument("--prune", action="store_true", help="remove sessions that are missing on their host")
+    p_ref.add_argument(
+        "--prune-unreachable",
+        action="store_true",
+        help="also remove sessions whose host is unreachable (requires --prune)",
+    )
+    p_ref.add_argument("--dry-run", action="store_true", help="print actions without writing to server")
+    p_ref.set_defaults(func=cmd_refresh)
+
     # doctor
     p_doc = sp.add_parser("doctor", help="check prerequisites and server connectivity")
     _add_common(p_doc)
@@ -656,7 +771,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         BANNER
         + "\n"
         + "interactive mode (shared history via server)\n"
-        + "Commands: ls, open, attach(a), kill, doctor, install-zellij\n"
+        + "Commands: ls, open, attach(a), kill, refresh, doctor, install-zellij\n"
         + "Type 'help' for full help, 'exit' to quit.\n\n"
     )
 

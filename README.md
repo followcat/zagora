@@ -122,6 +122,21 @@ zagora> exit
 >
 > REPL 输入历史会保存到 server（不同机器/不同终端共享，↑/↓ 可翻阅）。
 
+## 维护 / 清理 registry
+
+当你换电脑、重装、或远端 session 被手动关闭后，registry 里可能会残留失效条目。
+
+```bash
+# 刷新状态（会把无法连接的标记为 unreachable，把机器上找不到的标记为 missing）
+zagora refresh
+
+# 自动删除 missing（推荐定期跑）
+zagora refresh --prune
+
+# 连 host 都不通也删掉（更激进）
+zagora refresh --prune --prune-unreachable
+```
+
 ## 快速开始
 
 ### 1. 启动 Server
