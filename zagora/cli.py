@@ -148,13 +148,7 @@ echo "done — zellij is ready to use"
 """
 
 
-def _server_or_exit(args: argparse.Namespace) -> str:
-    server = resolve_server(getattr(args, "host", None))
-    if not server:
-        raise ZagoraError(
-            "missing server; provide --host, set ZAGORA_HOST, "
-            'or set ~/.config/zagora/config.json {"server": "http://host:port"}'
-        )
+def _normalize_server_url(server: str) -> str:
     s = server.rstrip("/")
     if not s.startswith("http"):
         # bare host or host:port → prepend scheme
@@ -163,6 +157,16 @@ def _server_or_exit(args: argparse.Namespace) -> str:
         if ":" not in s.split("//", 1)[1]:
             s = f"{s}:9876"
     return s
+
+
+def _server_or_exit(args: argparse.Namespace) -> str:
+    server = resolve_server(getattr(args, "host", None))
+    if not server:
+        raise ZagoraError(
+            "missing server; provide --host, set ZAGORA_HOST, "
+            'or set ~/.config/zagora/config.json {"server": "http://host:port"}'
+        )
+    return _normalize_server_url(server)
 
 
 def _token(args: argparse.Namespace) -> str | None:
@@ -796,9 +800,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     server = resolve_server(getattr(args, "host", None))
     if server:
-        s = server.rstrip("/")
-        if not s.startswith("http"):
-            s = f"http://{s}:9876"
+        s = _normalize_server_url(server)
         try:
             from zagora.registry import _request
             _request(f"{s}/health", token=_token(args))
@@ -995,7 +997,8 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
 
     parser = build_parser()
 
-    server = resolve_server(getattr(args, "host", None))
+    server_raw = resolve_server(getattr(args, "host", None))
+    server = _normalize_server_url(server_raw) if server_raw else None
     token = resolve_token(getattr(args, "token", None))
 
     readline = None
@@ -1033,7 +1036,15 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             "attach": ["-c", "--connect", "-n", "--name"],
             "a": ["-c", "--connect", "-n", "--name"],
             "kill": ["-c", "--connect", "-n", "--name"],
-            "refresh": ["-c", "--connect", "--prune", "--prune-unreachable", "--dry-run"],
+            "refresh": [
+                "-c",
+                "--connect",
+                "--prune",
+                "--prune-unreachable",
+                "--no-prune",
+                "--no-prune-unreachable",
+                "--dry-run",
+            ],
             "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
             "doctor": [],
             "install-zellij": ["-c", "--connect", "--transport", "--dir"],
@@ -1114,6 +1125,15 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         if line in {"help", "h", "?"}:
             parser.print_help()
             continue
+
+        if readline:
+            try:
+                n = readline.get_current_history_length()
+                last = readline.get_history_item(n) if n > 0 else None
+                if last != line:
+                    readline.add_history(line)
+            except Exception:
+                pass
 
         if server:
             try:

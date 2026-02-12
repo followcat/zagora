@@ -63,6 +63,11 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(exec_mock.call_args.args[0][0], "ssh")
 
+    def test_normalize_server_url_defaults(self):
+        self.assertEqual(cli._normalize_server_url("t14"), "http://t14:9876")
+        self.assertEqual(cli._normalize_server_url("t14:9999"), "http://t14:9999")
+        self.assertEqual(cli._normalize_server_url("http://t14:9999/"), "http://t14:9999")
+
     def test_repl_shorthand_open(self):
         out = cli._rewrite_repl_shorthand(["open", "v100", "NT"])
         self.assertEqual(out, ["open", "-c", "v100", "-n", "NT"])
