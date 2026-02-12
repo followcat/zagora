@@ -309,10 +309,17 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 
 def _parse_zellij_ls_names(output: str) -> list[str]:
     """Parse `zellij ls` output into session names."""
+
+    def _clean_terminal_noise(text: str) -> str:
+        # Strip ANSI escapes and other control chars that can appear in TTY output.
+        s = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text or "")
+        s = re.sub(r"[\x00-\x1F\x7F]", "", s)
+        return s
+
     out: list[str] = []
     seen: set[str] = set()
-    for line in (output or "").splitlines():
-        s = line.strip()
+    for raw_line in (output or "").splitlines():
+        s = _clean_terminal_noise(raw_line).strip()
         if not s:
             continue
         low = s.lower()
@@ -659,6 +666,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
         sys.stderr.write(p.stderr or p.stdout)
         return p.returncode
 
+    combined_io = f"{p.stdout or ''}\n{p.stderr or ''}"
+    auth_or_transport_issue = _looks_like_auth_or_transport_issue(combined_io)
     remote_names = _parse_zellij_ls_names(p.stdout or "")
 
     try:
@@ -672,6 +681,12 @@ def cmd_sync(args: argparse.Namespace) -> int:
         n = s.get("name")
         if isinstance(n, str) and n:
             current_names.add(n)
+
+    if not remote_names and current_names and auth_or_transport_issue:
+        sys.stderr.write(
+            "zagora: sync skipped destructive changes (ssh/auth prompt seen and remote session list is empty)\n"
+        )
+        return 1
 
     added = 0
     updated = 0
@@ -696,6 +711,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
             registry_remove(server, name, token=token)
             removed += 1
         except RegistryError as e:
+            if getattr(e, "code", None) == 404:
+                # Already removed/raced by another client, treat as benign.
+                continue
             failed += 1
             sys.stderr.write(f"zagora: warning: failed to remove stale '{name}': {e}\n")
 

@@ -339,7 +339,8 @@ zagora sync -c <target>
 |------|------|------|
 | `-c` / `--connect` | ✅ | 目标机器（主动扫描 zellij sessions） |
 
-行为：将目标机器上 `zellij ls` 扫描到的 session 注册为 `running`，并删除该机器在 registry 中已不存在的旧记录。
+行为：将目标机器上 `zellij ls` 扫描到的 session 注册为 `running`，并删除该机器在 registry 中已不存在的旧记录。  
+安全保护：若检测到 SSH 密码提示/鉴权异常且扫描结果为空，`sync` 会跳过删除，避免误清理。
 
 ### `zagora install-zellij`
 

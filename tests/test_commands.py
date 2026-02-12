@@ -129,6 +129,10 @@ class TestCommands(unittest.TestCase):
             cli._parse_zellij_ls_names("followcat@100.120.110.114's password:\nNTcli [Created now]\n"),
             ["NTcli"],
         )
+        self.assertEqual(
+            cli._parse_zellij_ls_names("\x1b[32;1mNTcli\x1b[m [Created now]\n"),
+            ["NTcli"],
+        )
 
     def test_auth_or_transport_issue_detector(self):
         self.assertTrue(cli._looks_like_auth_or_transport_issue("followcat@x password:"))
@@ -153,6 +157,42 @@ class TestCommands(unittest.TestCase):
             reg_names = [c.args[1] for c in reg_mock.call_args_list]
             self.assertEqual(reg_names, ["A", "B"])
             rm_mock.assert_called_once_with("http://s:9876", "OLD", token=None)
+
+    def test_cmd_sync_skips_destructive_when_password_prompt_and_empty(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(
+            args=["ssh"], returncode=0, stdout="", stderr="followcat@100.120.110.114's password:"
+        )
+        current = [{"name": "A", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 1)
+            reg_mock.assert_not_called()
+            rm_mock.assert_not_called()
+
+    def test_cmd_sync_ignore_404_when_removing_stale(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="A\n", stderr="")
+        current = [{"name": "A", "host": "v100"}, {"name": "OLD", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register"),
+            patch("zagora.cli.registry_remove", side_effect=cli.RegistryError("not found", code=404)),
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
 
     def test_cmd_refresh_does_not_prune_on_password_prompt(self):
         args = argparse.Namespace(host="http://s:9876", token=None, transport="auto", connect=None)
