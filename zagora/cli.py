@@ -297,6 +297,30 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
     return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
 
 
+def _parse_zellij_ls_names(output: str) -> list[str]:
+    """Parse `zellij ls` output into session names."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in (output or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if (
+            low.startswith("no active zellij session")
+            or low.startswith("no zellij sessions")
+            or low.startswith("no active sessions")
+        ):
+            continue
+        first = s.split()[0]
+        if first.lower() in {"name", "session", "sessions"}:
+            continue
+        if first not in seen:
+            out.append(first)
+            seen.add(first)
+    return out
+
+
 def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
     """Rewrite convenient REPL shorthand into regular CLI flags."""
     if not argv:
@@ -331,8 +355,8 @@ def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
             return out
         return argv
 
-    # ls <host> / refresh <host> / install-zellij <host>
-    if cmd in {"ls", "refresh", "install-zellij"}:
+    # ls <host> / refresh <host> / sync <host> / install-zellij <host>
+    if cmd in {"ls", "refresh", "sync", "install-zellij"}:
         if (
             not _has_any(("-c", "--connect"))
             and len(rest) == 1
@@ -352,7 +376,7 @@ def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
 def cmd_completion(args: argparse.Namespace) -> int:
     shell = args.shell
 
-    subs = "serve open attach a ls kill refresh update doctor install-zellij interactive i completion".split()
+    subs = "serve open attach a ls kill sync refresh update doctor install-zellij interactive i completion".split()
     global_opts = "--host --token --transport".split()
 
     # Per-subcommand options (short + long)
@@ -363,6 +387,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
         "a": ["-c", "--connect", "-n", "--name", *global_opts],
         "ls": ["-c", "--connect", *global_opts],
         "kill": ["-c", "--connect", "-n", "--name", *global_opts],
+        "sync": ["-c", "--connect", *global_opts],
         "refresh": [
             "-c",
             "--connect",
@@ -575,6 +600,68 @@ def cmd_kill(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sync(args: argparse.Namespace) -> int:
+    require_cmd("tailscale")
+    require_cmd("ssh")
+    server = _server_or_exit(args)
+    token = _token(args)
+    target = _connect_or_exit(args)
+
+    p = _run_remote_capture(args, target, _zellij_remote(["ls"]))
+    if p.returncode != 0:
+        sys.stderr.write(p.stderr or p.stdout)
+        return p.returncode
+
+    remote_names = _parse_zellij_ls_names(p.stdout or "")
+
+    try:
+        current_sessions = registry_ls(server, token=token, host=target)
+    except RegistryError as e:
+        sys.stderr.write(f"zagora: {e}\n")
+        return 1
+
+    current_names: set[str] = set()
+    for s in current_sessions:
+        n = s.get("name")
+        if isinstance(n, str) and n:
+            current_names.add(n)
+
+    added = 0
+    updated = 0
+    removed = 0
+    failed = 0
+
+    for name in remote_names:
+        try:
+            registry_register(server, name, target, token=token, status="running")
+            if name in current_names:
+                updated += 1
+            else:
+                added += 1
+        except RegistryError as e:
+            failed += 1
+            sys.stderr.write(f"zagora: warning: failed to register '{name}': {e}\n")
+
+    remote_set = set(remote_names)
+    stale = sorted(current_names - remote_set)
+    for name in stale:
+        try:
+            registry_remove(server, name, token=token)
+            removed += 1
+        except RegistryError as e:
+            failed += 1
+            sys.stderr.write(f"zagora: warning: failed to remove stale '{name}': {e}\n")
+
+    discovered = len(remote_names)
+    sys.stdout.write(
+        f"synced {target}: discovered {discovered}, added {added}, updated {updated}, removed {removed}\n"
+    )
+    if failed:
+        sys.stderr.write(f"zagora: sync completed with {failed} errors\n")
+        return 1
+    return 0
+
+
 def cmd_refresh(args: argparse.Namespace) -> int:
     require_cmd("tailscale")
     require_cmd("ssh")
@@ -628,14 +715,8 @@ def cmd_refresh(args: argparse.Namespace) -> int:
                         pass
             continue
 
-        found = False
-        for line in (p.stdout or "").splitlines():
-            parts = line.strip().split()
-            if not parts:
-                continue
-            if parts[0] == name:
-                found = True
-                break
+        remote_set = set(_parse_zellij_ls_names(p.stdout or ""))
+        found = name in remote_set
 
         if found:
             new_status = "running"
@@ -947,6 +1028,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_kill.add_argument("-n", "--name", required=True, help="session name")
     p_kill.set_defaults(func=cmd_kill)
 
+    # sync
+    p_sync = sp.add_parser("sync", help="scan target machine zellij sessions and sync to registry")
+    _add_common(p_sync)
+    p_sync.add_argument("-c", "--connect", required=True, help="target machine to scan")
+    p_sync.set_defaults(func=cmd_sync)
+
     # refresh
     p_ref = sp.add_parser(
         "refresh",
@@ -1051,6 +1138,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             "attach",
             "a",
             "kill",
+            "sync",
             "refresh",
             "update",
             "doctor",
@@ -1066,6 +1154,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             "attach": ["-c", "--connect", "-n", "--name"],
             "a": ["-c", "--connect", "-n", "--name"],
             "kill": ["-c", "--connect", "-n", "--name"],
+            "sync": ["-c", "--connect"],
             "refresh": [
                 "-c",
                 "--connect",
@@ -1136,8 +1225,8 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         BANNER
         + "\n"
         + "interactive mode (shared history via server)\n"
-        + "Commands: ls, open, attach(a), kill, refresh, update, doctor, install-zellij\n"
-        + "Maintenance: refresh(auto-prune) / refresh --no-prune / update\n"
+        + "Commands: ls, open, attach(a), kill, sync, refresh, update, doctor, install-zellij\n"
+        + "Maintenance: sync -c <host> / refresh(auto-prune) / update\n"
         + "Type 'help' for full help, Tab for completion, 'exit' to quit.\n\n"
     )
 

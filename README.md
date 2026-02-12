@@ -138,6 +138,9 @@ zagora refresh --no-prune
 
 # 保留 unreachable（仅标记状态）
 zagora refresh --no-prune-unreachable
+
+# 主动从目标机扫描并同步 session（可用于修复 registry 漂移）
+zagora sync -c v100
 ```
 
 ## 快速开始
@@ -262,6 +265,7 @@ zagora [--host HOST] [--token TOKEN] [--transport {auto,tailscale,ssh}] <command
   attach               attach 到已有 session（自动发现目标机器）
   ls                   列出 server 上注册的所有 session
   kill                 杀死一个 session（自动发现目标机器）
+  sync                 扫描目标机器 zellij sessions 并同步到 server
   doctor               检查本地工具和 server 连通性
   install-zellij       在远程机器上安装 zellij
 ```
@@ -322,6 +326,18 @@ zagora kill --name <session_name> [-c <target>]
 |------|------|------|
 | `--name` | ✅ | session 名称 |
 | `-c` / `--connect` | ❌ | 目标机器（不指定则从 server 自动查询） |
+
+### `zagora sync`
+
+```bash
+zagora sync -c <target>
+```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `-c` / `--connect` | ✅ | 目标机器（主动扫描 zellij sessions） |
+
+行为：将目标机器上 `zellij ls` 扫描到的 session 注册为 `running`，并删除该机器在 registry 中已不存在的旧记录。
 
 ### `zagora install-zellij`
 

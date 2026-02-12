@@ -83,6 +83,34 @@ class TestCommands(unittest.TestCase):
             cli._rewrite_repl_shorthand(["refresh", "v100"]),
             ["refresh", "-c", "v100"],
         )
+        self.assertEqual(
+            cli._rewrite_repl_shorthand(["sync", "v100"]),
+            ["sync", "-c", "v100"],
+        )
+
+    def test_parse_zellij_ls_names(self):
+        text = "NT [Created 1h ago]\nWork [Created now]\n"
+        self.assertEqual(cli._parse_zellij_ls_names(text), ["NT", "Work"])
+        self.assertEqual(cli._parse_zellij_ls_names("No active zellij sessions found.\n"), [])
+
+    def test_cmd_sync_registers_remote_and_removes_stale(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="A\nB\n", stderr="")
+        current = [{"name": "A", "host": "v100"}, {"name": "OLD", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            reg_names = [c.args[1] for c in reg_mock.call_args_list]
+            self.assertEqual(reg_names, ["A", "B"])
+            rm_mock.assert_called_once_with("http://s:9876", "OLD", token=None)
 
 
 class TestParser(unittest.TestCase):
@@ -158,6 +186,12 @@ class TestParser(unittest.TestCase):
         p = build_parser()
         args = p.parse_args(["update"])
         self.assertEqual(args.cmd, "update")
+
+    def test_sync_parses(self):
+        p = build_parser()
+        args = p.parse_args(["sync", "-c", "v100"])
+        self.assertEqual(args.cmd, "sync")
+        self.assertEqual(args.connect, "v100")
 
     def test_global_host_before_subcommand(self):
         p = build_parser()
