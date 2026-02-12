@@ -381,16 +381,19 @@ def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
             return ["open", "-c", rest[0], "-n", rest[1]]
         return argv
 
-    # attach <session> [host] / kill <session> [host]
+    # attach/kill shorthand:
+    #   <session>           -> -n <session>
+    #   <host> <session>    -> -c <host> -n <session>
     if cmd in {"attach", "a", "kill"}:
         if (
             not _has_any(("-n", "--name", "-c", "--connect"))
             and 1 <= len(rest) <= 2
             and all(not x.startswith("-") for x in rest)
         ):
-            out = [cmd, "-n", rest[0]]
-            if len(rest) == 2:
-                out += ["-c", rest[1]]
+            if len(rest) == 1:
+                out = [cmd, "-n", rest[0]]
+            else:
+                out = [cmd, "-c", rest[0], "-n", rest[1]]
             return out
         return argv
 

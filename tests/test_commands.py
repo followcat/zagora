@@ -107,7 +107,8 @@ class TestCommands(unittest.TestCase):
 
     def test_repl_shorthand_attach_and_kill(self):
         self.assertEqual(cli._rewrite_repl_shorthand(["a", "NT"]), ["a", "-n", "NT"])
-        self.assertEqual(cli._rewrite_repl_shorthand(["kill", "NT", "v100"]), ["kill", "-n", "NT", "-c", "v100"])
+        self.assertEqual(cli._rewrite_repl_shorthand(["kill", "v100", "NT"]), ["kill", "-c", "v100", "-n", "NT"])
+        self.assertEqual(cli._rewrite_repl_shorthand(["attach", "v100", "NT"]), ["attach", "-c", "v100", "-n", "NT"])
 
     def test_repl_shorthand_host_filters(self):
         self.assertEqual(cli._rewrite_repl_shorthand(["ls", "v100"]), ["ls", "-c", "v100"])
