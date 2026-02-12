@@ -7,7 +7,15 @@ import sys
 from zagora.config import resolve_server, resolve_token
 from zagora.exec import ZagoraError, exec_interactive, require_cmd, run_capture
 from zagora.exec import ssh_via_tailscale, tailscale_ssh
-from zagora.registry import RegistryError, registry_get, registry_ls, registry_register, registry_remove
+from zagora.registry import (
+    RegistryError,
+    registry_get,
+    registry_history_add,
+    registry_history_list,
+    registry_ls,
+    registry_register,
+    registry_remove,
+)
 
 
 BANNER = r"""
@@ -617,10 +625,26 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
 
     parser = build_parser()
 
+    server = resolve_server(getattr(args, "host", None))
+    token = resolve_token(getattr(args, "token", None))
+
+    try:
+        import readline  # noqa: F401
+
+        if server:
+            for h in registry_history_list(server, token=token, limit=2000):
+                try:
+                    readline.add_history(h)
+                except Exception:
+                    pass
+    except Exception:
+        # readline not available (e.g. Windows) or server unreachable
+        pass
+
     sys.stdout.write(
         BANNER
         + "\n"
-        + "interactive mode\n"
+        + "interactive mode (shared history via server)\n"
         + "Commands: ls, open, attach(a), kill, doctor, install-zellij\n"
         + "Type 'help' for full help, 'exit' to quit.\n\n"
     )
@@ -639,6 +663,12 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         if line in {"help", "h", "?"}:
             parser.print_help()
             continue
+
+        if server:
+            try:
+                registry_history_add(server, line, token=token)
+            except Exception:
+                pass
 
         try:
             argv2 = base + shlex.split(line)
