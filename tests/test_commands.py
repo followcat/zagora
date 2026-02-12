@@ -24,6 +24,12 @@ class TestParser(unittest.TestCase):
         self.assertEqual(args.cmd, "serve")
         self.assertEqual(args.port, 1234)
 
+    def test_completion_parses(self):
+        p = build_parser()
+        args = p.parse_args(["completion", "--shell", "bash"])
+        self.assertEqual(args.cmd, "completion")
+        self.assertEqual(args.shell, "bash")
+
     def test_open(self):
         p = build_parser()
         args = p.parse_args(["open", "-c", "v100", "--name", "Work"])

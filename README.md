@@ -66,6 +66,42 @@ curl -fsSL https://raw.githubusercontent.com/followcat/zagora/main/install.sh | 
 pip install -e .
 ```
 
+## Shell 自动补全（Tab completion）
+
+zagora 内置生成补全脚本：
+
+```bash
+zagora completion --shell bash
+zagora completion --shell zsh
+zagora completion --shell fish
+```
+
+### Bash
+
+```bash
+# 方式 1：临时生效（当前 shell）
+source <(zagora completion --shell bash)
+
+# 方式 2：持久化（推荐）
+mkdir -p ~/.local/share/bash-completion/completions
+zagora completion --shell bash > ~/.local/share/bash-completion/completions/zagora
+# 重新打开 shell 或 source ~/.bashrc
+```
+
+### Zsh
+
+```zsh
+# zsh 会自动启用 bashcompinit 并复用 bash completion
+source <(zagora completion --shell zsh)
+```
+
+### Fish
+
+```fish
+mkdir -p ~/.config/fish/completions
+zagora completion --shell fish > ~/.config/fish/completions/zagora.fish
+```
+
 ## 交互模式（REPL）
 
 如果你希望像"进入一个控制台"一样操作：

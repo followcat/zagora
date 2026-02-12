@@ -243,6 +243,106 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 # commands
 # ---------------------------------------------------------------------------
 
+
+def cmd_completion(args: argparse.Namespace) -> int:
+    shell = args.shell
+
+    subs = "serve open attach a ls kill doctor install-zellij interactive i completion".split()
+    global_opts = "--host --token --transport".split()
+
+    # Per-subcommand options (short + long)
+    opts: dict[str, list[str]] = {
+        "serve": ["--port", "--bind", "--token"],
+        "open": ["-c", "--connect", "-n", "--name", *global_opts],
+        "attach": ["-c", "--connect", "-n", "--name", *global_opts],
+        "a": ["-c", "--connect", "-n", "--name", *global_opts],
+        "ls": ["-c", "--connect", *global_opts],
+        "kill": ["-c", "--connect", "-n", "--name", *global_opts],
+        "doctor": [*global_opts],
+        "install-zellij": ["-c", "--connect", "--dir", "--transport"],
+        "interactive": [*global_opts],
+        "i": [*global_opts],
+        "completion": ["--shell"],
+    }
+
+    if shell in {"bash", "zsh"}:
+        # zsh uses bashcompinit wrapper.
+        zsh_prelude = """
+#compdef zagora
+autoload -U +X bashcompinit && bashcompinit
+""" if shell == "zsh" else ""
+
+        script = f"""{zsh_prelude}
+_zagora_complete() {{
+  local cur prev cmd
+  cur=\"${{COMP_WORDS[COMP_CWORD]}}\"
+  prev=\"${{COMP_WORDS[COMP_CWORD-1]}}\"
+
+  # find first non-flag word after possible global opts
+  cmd=\"\"
+  for w in \"${{COMP_WORDS[@]:1}}\"; do
+    case \"$w\" in
+      --host|--token|--transport) continue ;;
+      --*) continue ;;
+      -*) continue ;;
+      *) cmd=\"$w\"; break ;;
+    esac
+  done
+
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W '{" ".join(subs)} {" ".join(global_opts)}' -- \"$cur\") )
+    return 0
+  fi
+
+  # completing subcommand
+  if [[ -z \"$cmd\" && \"$cur\" != -* ]]; then
+    COMPREPLY=( $(compgen -W '{" ".join(subs)}' -- \"$cur\") )
+    return 0
+  fi
+
+  # options for current command
+  local words=\"\"
+  words='{ " ".join(global_opts) }'
+  if [[ -n \"$cmd\" ]]; then
+    case \"$cmd\" in
+"""
+        for k, v in opts.items():
+            script += f"      {k}) words=\"{' '.join(sorted(set(v)))}\" ;;;\n"
+
+        script += """    esac
+  fi
+
+  if [[ \"$cur\" == -* ]]; then
+    COMPREPLY=( $(compgen -W "$words" -- "$cur") )
+    return 0
+  fi
+
+  COMPREPLY=()
+  return 0
+}}
+
+complete -F _zagora_complete zagora
+"""
+        sys.stdout.write(script)
+        return 0
+
+    if shell == "fish":
+        # Keep it simple/static.
+        lines: list[str] = [
+            "# fish completion for zagora",
+            "complete -c zagora -f",
+        ]
+        for s in subs:
+            lines.append(f"complete -c zagora -n '__fish_use_subcommand' -a '{s}'")
+        for o in global_opts:
+            lines.append(f"complete -c zagora -l {o.lstrip('-')} -r")
+        sys.stdout.write("\n".join(lines) + "\n")
+        return 0
+
+    raise ZagoraError("unsupported shell; use: bash, zsh, fish")
+
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from zagora.server import run_server
     run_server(port=args.port, token=_token(args), bind=args.bind)
@@ -442,6 +542,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_i = sp.add_parser("interactive", aliases=["i"], help="interactive mode (REPL)")
     _add_common(p_i)
     p_i.set_defaults(func=_cmd_interactive)
+
+    # completion
+    p_comp = sp.add_parser("completion", help="print shell completion script")
+    p_comp.add_argument("--shell", choices=["bash", "zsh", "fish"], default="bash")
+    p_comp.set_defaults(func=cmd_completion)
 
     # serve
     p_serve = sp.add_parser("serve", help="start the zagora registry server")
