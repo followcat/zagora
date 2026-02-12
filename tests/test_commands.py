@@ -1,4 +1,5 @@
 import argparse
+import io
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -68,6 +69,37 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(cli._normalize_server_url("t14"), "http://t14:9876")
         self.assertEqual(cli._normalize_server_url("t14:9999"), "http://t14:9999")
         self.assertEqual(cli._normalize_server_url("http://t14:9999/"), "http://t14:9999")
+
+    def test_short_ts(self):
+        self.assertEqual(cli._short_ts("2026-02-12T08:08:08+00:00"), "2026-02-12 08:08:08")
+        self.assertEqual(cli._short_ts(""), "-")
+        self.assertEqual(cli._short_ts(None), "-")
+
+    def test_cmd_ls_shows_extended_status(self):
+        args = argparse.Namespace(host="http://s:9876", token=None, connect=None)
+        sessions = [
+            {
+                "name": "NTcli",
+                "host": "v100",
+                "status": "running",
+                "host_reachable": True,
+                "last_seen": "2026-02-12T08:08:08+00:00",
+                "health_checked_at": "2026-02-12T08:09:09+00:00",
+                "created_at": "2026-02-12T08:00:00+00:00",
+            }
+        ]
+        with (
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=sessions),
+            patch("sys.stdout", new_callable=io.StringIO) as out,
+        ):
+            rc = cli.cmd_ls(args)
+            self.assertEqual(rc, 0)
+            text = out.getvalue()
+            self.assertIn("host:up", text)
+            self.assertIn("seen:2026-02-12 08:08:08", text)
+            self.assertIn("health:2026-02-12 08:09:09", text)
 
     def test_repl_shorthand_open(self):
         out = cli._rewrite_repl_shorthand(["open", "v100", "NT"])

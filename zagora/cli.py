@@ -173,6 +173,15 @@ def _token(args: argparse.Namespace) -> str | None:
     return resolve_token(getattr(args, "token", None))
 
 
+def _short_ts(ts: object) -> str:
+    if not isinstance(ts, str) or not ts:
+        return "-"
+    s = ts.strip().replace("T", " ")
+    if len(s) >= 19:
+        return s[:19]
+    return s
+
+
 def _connect_or_exit(args: argparse.Namespace) -> str:
     c = getattr(args, "connect", None)
     if not c:
@@ -564,7 +573,12 @@ def cmd_ls(args: argparse.Namespace) -> int:
         name = s.get("name", "?")
         reach = s.get("host_reachable")
         reach_s = "?" if reach is None else ("up" if bool(reach) else "down")
-        sys.stdout.write(f"  {name}\t{host}\t{status}\thost:{reach_s}\n")
+        last_seen = _short_ts(s.get("last_seen"))
+        checked = _short_ts(s.get("health_checked_at"))
+        created = _short_ts(s.get("created_at"))
+        sys.stdout.write(
+            f"  {name}\t{host}\t{status}\thost:{reach_s}\tseen:{last_seen}\thealth:{checked}\tcreated:{created}\n"
+        )
     return 0
 
 

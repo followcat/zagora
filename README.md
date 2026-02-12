@@ -211,15 +211,15 @@ zagora open -c v100 --name Work
 
 ```bash
 zagora ls
-#   Work    v100    running    host:up
-#   Debug   t14     running    host:down
+#   Work    v100    running    host:up      seen:2026-02-12 08:10:20  health:2026-02-12 08:10:22  created:2026-02-12 07:00:00
+#   Debug   t14     missing    host:down    seen:2026-02-12 08:05:00  health:2026-02-12 08:10:21  created:2026-02-12 06:40:00
 ```
 
 按目标机器过滤：
 
 ```bash
 zagora ls -c v100
-#   Work    v100    running    host:up
+#   Work    v100    running    host:up      seen:2026-02-12 08:10:20  health:2026-02-12 08:10:22  created:2026-02-12 07:00:00
 ```
 
 ### 6. 从另一台机器恢复 session
@@ -314,7 +314,7 @@ zagora ls [-c <target>]
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `-c` / `--connect` | ❌ | 按目标机器过滤 |
+| `-c` / `--connect` | ❌ | 按目标机器过滤（输出含 session 状态、host 可达性、seen/health/created 时间） |
 
 ### `zagora kill`
 
