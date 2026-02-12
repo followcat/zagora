@@ -112,9 +112,9 @@ zagora --host http://t14:9876
 zagora --host http://t14:9876 i
 
 zagora> ls
-zagora> open -c v100 -n NT
-zagora> a -n NT
-zagora> kill -n NT
+zagora> open v100 NT        # REPL 简写：等价于 open -c v100 -n NT
+zagora> a NT                # 等价于 a -n NT
+zagora> kill NT             # 等价于 kill -n NT
 zagora> exit
 ```
 

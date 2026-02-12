@@ -283,6 +283,53 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
     return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
 
 
+def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
+    """Rewrite convenient REPL shorthand into regular CLI flags."""
+    if not argv:
+        return argv
+
+    cmd = argv[0]
+    rest = argv[1:]
+
+    def _has_any(flags: tuple[str, ...]) -> bool:
+        return any(x in rest for x in flags)
+
+    # open <host> <session>
+    if cmd == "open":
+        if (
+            not _has_any(("-c", "--connect", "-n", "--name"))
+            and len(rest) == 2
+            and all(not x.startswith("-") for x in rest)
+        ):
+            return ["open", "-c", rest[0], "-n", rest[1]]
+        return argv
+
+    # attach <session> [host] / kill <session> [host]
+    if cmd in {"attach", "a", "kill"}:
+        if (
+            not _has_any(("-n", "--name", "-c", "--connect"))
+            and 1 <= len(rest) <= 2
+            and all(not x.startswith("-") for x in rest)
+        ):
+            out = [cmd, "-n", rest[0]]
+            if len(rest) == 2:
+                out += ["-c", rest[1]]
+            return out
+        return argv
+
+    # ls <host> / refresh <host> / install-zellij <host>
+    if cmd in {"ls", "refresh", "install-zellij"}:
+        if (
+            not _has_any(("-c", "--connect"))
+            and len(rest) == 1
+            and not rest[0].startswith("-")
+        ):
+            return [cmd, "-c", rest[0]]
+        return argv
+
+    return argv
+
+
 # ---------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------
@@ -1075,13 +1122,14 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
                 pass
 
         try:
-            argv2 = base + shlex.split(line)
+            line_argv = _rewrite_repl_shorthand(shlex.split(line))
+            argv2 = base + line_argv
         except ValueError as e:
             sys.stderr.write(f"zagora: {e}\n")
             continue
 
         # Avoid nesting interactive mode
-        if argv2 and argv2[-1] in {"interactive", "i"}:
+        if line_argv and line_argv[0] in {"interactive", "i"}:
             sys.stderr.write("zagora: already in interactive mode\n")
             continue
 

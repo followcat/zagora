@@ -63,6 +63,21 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(exec_mock.call_args.args[0][0], "ssh")
 
+    def test_repl_shorthand_open(self):
+        out = cli._rewrite_repl_shorthand(["open", "v100", "NT"])
+        self.assertEqual(out, ["open", "-c", "v100", "-n", "NT"])
+
+    def test_repl_shorthand_attach_and_kill(self):
+        self.assertEqual(cli._rewrite_repl_shorthand(["a", "NT"]), ["a", "-n", "NT"])
+        self.assertEqual(cli._rewrite_repl_shorthand(["kill", "NT", "v100"]), ["kill", "-n", "NT", "-c", "v100"])
+
+    def test_repl_shorthand_host_filters(self):
+        self.assertEqual(cli._rewrite_repl_shorthand(["ls", "v100"]), ["ls", "-c", "v100"])
+        self.assertEqual(
+            cli._rewrite_repl_shorthand(["refresh", "v100"]),
+            ["refresh", "-c", "v100"],
+        )
+
 
 class TestParser(unittest.TestCase):
     def test_serve(self):
