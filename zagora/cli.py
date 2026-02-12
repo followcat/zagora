@@ -199,6 +199,11 @@ def _hostkey_problem(stderr: str) -> bool:
     return _HOSTKEY_ERR in (stderr or "") or "Host key verification failed" in (stderr or "")
 
 
+def _tailscale_rejects_y(stderr: str) -> bool:
+    s = stderr or ""
+    return "flag provided but not defined: -Y" in s or "unknown shorthand flag: 'Y'" in s
+
+
 def _transport(args: argparse.Namespace) -> str:
     return getattr(args, "transport", "auto")
 
@@ -208,10 +213,13 @@ def _run_remote_capture(args: argparse.Namespace, host: str, remote_argv: list[s
     if t == "ssh":
         return run_capture(ssh_via_tailscale(host, remote_argv))
     if t == "tailscale":
-        return run_capture(tailscale_ssh(host, remote_argv))
+        p = run_capture(tailscale_ssh(host, remote_argv))
+        if p.returncode != 0 and _tailscale_rejects_y(p.stderr):
+            return run_capture(ssh_via_tailscale(host, remote_argv))
+        return p
 
     p = run_capture(tailscale_ssh(host, remote_argv))
-    if p.returncode != 0 and _hostkey_problem(p.stderr):
+    if p.returncode != 0 and (_hostkey_problem(p.stderr) or _tailscale_rejects_y(p.stderr)):
         return run_capture(ssh_via_tailscale(host, remote_argv))
     return p
 
@@ -231,6 +239,22 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
     if t == "ssh":
         return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
     if t == "tailscale":
+        try:
+            pre = subprocess.run(
+                tailscale_ssh(host, ["true"]),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except subprocess.TimeoutExpired:
+            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+
+        if pre.returncode == 0:
+            return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
+        if _tailscale_rejects_y(pre.stderr):
+            sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
+            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
         return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
 
     # auto: quick preflight to detect host-key issues (no password prompt)
@@ -248,6 +272,9 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 
     if pre.returncode == 0:
         return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
+    if _tailscale_rejects_y(pre.stderr):
+        sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
     if _hostkey_problem(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh host key unavailable; falling back to system ssh\n")
         return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))

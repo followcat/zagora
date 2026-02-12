@@ -34,11 +34,34 @@ class TestCommands(unittest.TestCase):
             exec_mock.assert_not_called()
 
     def test_exec_remote_interactive_execs_outside_repl(self):
-        args = argparse.Namespace(transport="tailscale")
+        args = argparse.Namespace(transport="ssh")
         with patch("zagora.cli.exec_interactive") as exec_mock:
             rc = cli._exec_remote_interactive(args, "C", ["zellij", "attach", "Work"])
             self.assertEqual(rc, 0)
             self.assertTrue(exec_mock.called)
+
+    def test_run_remote_capture_falls_back_when_tailscale_rejects_y(self):
+        args = argparse.Namespace(transport="auto")
+        runs = [
+            subprocess.CompletedProcess(
+                args=["tailscale", "ssh"], returncode=2, stdout="", stderr="flag provided but not defined: -Y"
+            ),
+            subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="ok\n", stderr=""),
+        ]
+        with patch("zagora.cli.run_capture", side_effect=runs) as run_mock:
+            out = cli._run_remote_capture(args, "C", ["true"])
+            self.assertEqual(out.returncode, 0)
+            self.assertEqual(run_mock.call_args_list[1].args[0][0], "ssh")
+
+    def test_exec_remote_interactive_falls_back_when_tailscale_rejects_y(self):
+        args = argparse.Namespace(transport="tailscale")
+        pre = subprocess.CompletedProcess(
+            args=["tailscale", "ssh"], returncode=2, stdout="", stderr="flag provided but not defined: -Y"
+        )
+        with patch("subprocess.run", return_value=pre), patch("zagora.cli.exec_interactive") as exec_mock:
+            rc = cli._exec_remote_interactive(args, "C", ["zellij", "attach", "Work"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(exec_mock.call_args.args[0][0], "ssh")
 
 
 class TestParser(unittest.TestCase):
