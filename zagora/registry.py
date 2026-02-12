@@ -73,3 +73,16 @@ def registry_register(
 def registry_remove(server: str, name: str, token: str | None = None) -> dict[str, Any]:
     url = f"{_base(server)}/sessions/{name}"
     return _request(url, method="DELETE", token=token)
+
+
+def registry_history_list(server: str, token: str | None = None, limit: int | None = None) -> list[str]:
+    url = f"{_base(server)}/history"
+    if isinstance(limit, int) and limit > 0:
+        url += f"?limit={limit}"
+    data = _request(url, token=token)
+    return [x for x in data if isinstance(x, str)]
+
+
+def registry_history_add(server: str, line: str, token: str | None = None) -> None:
+    url = f"{_base(server)}/history"
+    _request(url, method="POST", body={"line": line}, token=token)

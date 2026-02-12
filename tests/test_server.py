@@ -6,12 +6,20 @@ from http.server import HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from zagora.registry import RegistryError, registry_get, registry_ls, registry_register, registry_remove
-from zagora.server import SessionStore, _make_handler
+from zagora.registry import (
+    RegistryError,
+    registry_get,
+    registry_history_add,
+    registry_history_list,
+    registry_ls,
+    registry_register,
+    registry_remove,
+)
+from zagora.server import HistoryStore, SessionStore, _make_handler
 
 
-def _start_server(store, token=None, port=0):
-    handler = _make_handler(store, token)
+def _start_server(store, history, token=None, port=0):
+    handler = _make_handler(store, history, token)
     server = HTTPServer(("127.0.0.1", port), handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -57,7 +65,8 @@ class TestServerAndRegistry(unittest.TestCase):
     def setUp(self):
         self._tmpdir = TemporaryDirectory()
         self.store = SessionStore(Path(self._tmpdir.name) / "sessions.json")
-        self.server = _start_server(self.store)
+        self.history = HistoryStore(Path(self._tmpdir.name) / "history.json")
+        self.server = _start_server(self.store, self.history)
         self.port = self.server.server_address[1]
         self.url = f"http://127.0.0.1:{self.port}"
 
@@ -99,7 +108,8 @@ class TestServerAuth(unittest.TestCase):
     def setUp(self):
         self._tmpdir = TemporaryDirectory()
         self.store = SessionStore(Path(self._tmpdir.name) / "sessions.json")
-        self.server = _start_server(self.store, token="secret")
+        self.history = HistoryStore(Path(self._tmpdir.name) / "history.json")
+        self.server = _start_server(self.store, self.history, token="secret")
         self.port = self.server.server_address[1]
         self.url = f"http://127.0.0.1:{self.port}"
 
@@ -121,3 +131,29 @@ class TestServerAuth(unittest.TestCase):
         with self.assertRaises(RegistryError) as ctx:
             registry_ls(self.url, token="wrong")
         self.assertEqual(getattr(ctx.exception, "code", None), 401)
+
+
+class TestHistory(unittest.TestCase):
+    def setUp(self):
+        self._tmpdir = TemporaryDirectory()
+        self.store = SessionStore(Path(self._tmpdir.name) / "sessions.json")
+        self.history = HistoryStore(Path(self._tmpdir.name) / "history.json", max_len=10)
+        self.server = _start_server(self.store, self.history)
+        self.port = self.server.server_address[1]
+        self.url = f"http://127.0.0.1:{self.port}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self._tmpdir.cleanup()
+
+    def test_history_append_and_list(self):
+        registry_history_add(self.url, "ls")
+        registry_history_add(self.url, "open -c v100 -n NT")
+        lines = registry_history_list(self.url)
+        self.assertEqual(lines[-1], "open -c v100 -n NT")
+
+    def test_history_limit(self):
+        for i in range(5):
+            registry_history_add(self.url, f"cmd {i}")
+        lines = registry_history_list(self.url, limit=2)
+        self.assertEqual(lines, ["cmd 3", "cmd 4"])
