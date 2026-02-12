@@ -75,6 +75,12 @@ class TestParser(unittest.TestCase):
         args = p.parse_args(["refresh"])
         self.assertEqual(args.cmd, "refresh")
 
+    def test_refresh_no_prune_flags_parse(self):
+        p = build_parser()
+        args = p.parse_args(["refresh", "--no-prune", "--no-prune-unreachable"])
+        self.assertTrue(args.no_prune)
+        self.assertTrue(args.no_prune_unreachable)
+
     def test_update_parses(self):
         p = build_parser()
         args = p.parse_args(["update"])

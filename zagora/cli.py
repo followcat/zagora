@@ -266,7 +266,16 @@ def cmd_completion(args: argparse.Namespace) -> int:
         "a": ["-c", "--connect", "-n", "--name", *global_opts],
         "ls": ["-c", "--connect", *global_opts],
         "kill": ["-c", "--connect", "-n", "--name", *global_opts],
-        "refresh": ["-c", "--connect", "--prune", "--prune-unreachable", "--dry-run", *global_opts],
+        "refresh": [
+            "-c",
+            "--connect",
+            "--prune",
+            "--prune-unreachable",
+            "--no-prune",
+            "--no-prune-unreachable",
+            "--dry-run",
+            *global_opts,
+        ],
         "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
         "doctor": [*global_opts],
         "install-zellij": ["-c", "--connect", "--dir", "--transport"],
@@ -467,8 +476,8 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     server = _server_or_exit(args)
     token = _token(args)
     host_filter = getattr(args, "connect", None)
-    prune = getattr(args, "prune", False)
-    prune_unreachable = getattr(args, "prune_unreachable", False)
+    prune = (not getattr(args, "no_prune", False)) or getattr(args, "prune", False)
+    prune_unreachable = (not getattr(args, "no_prune_unreachable", False)) or getattr(args, "prune_unreachable", False)
     dry_run = getattr(args, "dry_run", False)
 
     try:
@@ -493,7 +502,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
         p = _run_remote_capture(args, host, _zellij_remote(["ls"]))
         if p.returncode != 0:
             # host unreachable (or zellij missing)
-            if prune_unreachable and prune:
+            if prune_unreachable:
                 sys.stdout.write(f"  - {name}\t{host}\tunreachable -> remove\n")
                 if not dry_run:
                     try:
@@ -826,23 +835,29 @@ def build_parser() -> argparse.ArgumentParser:
     # refresh
     p_ref = sp.add_parser(
         "refresh",
-        help="refresh session status; optionally prune invalid entries",
+        help="refresh session status; auto-prune invalid entries by default",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  zagora refresh\n"
-            "  zagora refresh --prune\n"
-            "  zagora refresh --prune --prune-unreachable\n"
-            "  zagora refresh --dry-run --prune\n"
+            "  zagora refresh --dry-run\n"
+            "  zagora refresh --no-prune\n"
+            "  zagora refresh --no-prune-unreachable\n"
         ),
     )
     _add_common(p_ref)
     p_ref.add_argument("-c", "--connect", help="only refresh sessions on a specific host")
-    p_ref.add_argument("--prune", action="store_true", help="remove sessions that are missing on their host")
+    p_ref.add_argument("--prune", action="store_true", help="deprecated alias (pruning is now default)")
     p_ref.add_argument(
         "--prune-unreachable",
         action="store_true",
-        help="also remove sessions whose host is unreachable (requires --prune)",
+        help="deprecated alias (unreachable pruning is now default)",
+    )
+    p_ref.add_argument("--no-prune", action="store_true", help="keep missing sessions; mark status as missing")
+    p_ref.add_argument(
+        "--no-prune-unreachable",
+        action="store_true",
+        help="keep unreachable sessions; mark status as unreachable",
     )
     p_ref.add_argument("--dry-run", action="store_true", help="print actions without writing to server")
     p_ref.set_defaults(func=cmd_refresh)
@@ -998,7 +1013,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         + "\n"
         + "interactive mode (shared history via server)\n"
         + "Commands: ls, open, attach(a), kill, refresh, update, doctor, install-zellij\n"
-        + "Maintenance: refresh --prune / refresh --prune --prune-unreachable / update\n"
+        + "Maintenance: refresh(auto-prune) / refresh --no-prune / update\n"
         + "Type 'help' for full help, Tab for completion, 'exit' to quit.\n\n"
     )
 

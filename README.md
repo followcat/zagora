@@ -127,14 +127,17 @@ zagora> exit
 当你换电脑、重装、或远端 session 被手动关闭后，registry 里可能会残留失效条目。
 
 ```bash
-# 刷新状态（会把无法连接的标记为 unreachable，把机器上找不到的标记为 missing）
+# 刷新并自动清理失效 session（默认会删除 missing + unreachable）
 zagora refresh
 
-# 自动删除 missing（推荐定期跑）
-zagora refresh --prune
+# 仅查看将发生的动作，不实际写入
+zagora refresh --dry-run
 
-# 连 host 都不通也删掉（更激进）
-zagora refresh --prune --prune-unreachable
+# 保留 missing（仅标记状态）
+zagora refresh --no-prune
+
+# 保留 unreachable（仅标记状态）
+zagora refresh --no-prune-unreachable
 ```
 
 ## 快速开始
