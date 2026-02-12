@@ -697,7 +697,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_kill.set_defaults(func=cmd_kill)
 
     # refresh
-    p_ref = sp.add_parser("refresh", help="refresh session status; optionally prune missing entries")
+    p_ref = sp.add_parser(
+        "refresh",
+        help="refresh session status; optionally prune invalid entries",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  zagora refresh\n"
+            "  zagora refresh --prune\n"
+            "  zagora refresh --prune --prune-unreachable\n"
+            "  zagora refresh --dry-run --prune\n"
+        ),
+    )
     _add_common(p_ref)
     p_ref.add_argument("-c", "--connect", help="only refresh sessions on a specific host")
     p_ref.add_argument("--prune", action="store_true", help="remove sessions that are missing on their host")
@@ -772,6 +783,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         + "\n"
         + "interactive mode (shared history via server)\n"
         + "Commands: ls, open, attach(a), kill, refresh, doctor, install-zellij\n"
+        + "Maintenance: refresh --prune / refresh --prune --prune-unreachable\n"
         + "Type 'help' for full help, 'exit' to quit.\n\n"
     )
 
