@@ -628,18 +628,29 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
     server = resolve_server(getattr(args, "host", None))
     token = resolve_token(getattr(args, "token", None))
 
+    readline = None
     try:
-        import readline  # noqa: F401
+        import readline as _readline  # type: ignore
 
-        if server:
+        readline = _readline
+    except Exception:
+        try:
+            import gnureadline as _readline  # type: ignore
+
+            readline = _readline
+        except Exception:
+            readline = None
+
+    if readline and server:
+        try:
             for h in registry_history_list(server, token=token, limit=2000):
                 try:
                     readline.add_history(h)
                 except Exception:
                     pass
-    except Exception:
-        # readline not available (e.g. Windows) or server unreachable
-        pass
+        except Exception:
+            # server unreachable
+            pass
 
     sys.stdout.write(
         BANNER

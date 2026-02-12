@@ -34,6 +34,12 @@ python3 -m venv "$VENV"
 "$VENV/bin/python" -m pip -q install -U pip setuptools wheel
 "$VENV/bin/python" -m pip -q install -U "zagora @ ${ZIP_URL}"
 
+# Best-effort readline support for REPL history navigation.
+if ! "$VENV/bin/python" -c 'import readline' >/dev/null 2>&1; then
+  echo "note: Python readline module not available; installing fallback (best-effort)" >&2
+  "$VENV/bin/python" -m pip -q install -U gnureadline pyreadline3 || true
+fi
+
 mkdir -p "$BIN_DIR"
 ln -sf "$VENV/bin/zagora" "$BIN_DIR/zagora"
 
