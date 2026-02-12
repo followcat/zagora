@@ -913,6 +913,75 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         except Exception:
             readline = None
 
+    if readline:
+        repl_cmds = [
+            "ls",
+            "open",
+            "attach",
+            "a",
+            "kill",
+            "refresh",
+            "update",
+            "doctor",
+            "install-zellij",
+            "help",
+            "exit",
+            "quit",
+            "q",
+        ]
+        repl_opts: dict[str, list[str]] = {
+            "ls": ["-c", "--connect"],
+            "open": ["-c", "--connect", "-n", "--name"],
+            "attach": ["-c", "--connect", "-n", "--name"],
+            "a": ["-c", "--connect", "-n", "--name"],
+            "kill": ["-c", "--connect", "-n", "--name"],
+            "refresh": ["-c", "--connect", "--prune", "--prune-unreachable", "--dry-run"],
+            "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
+            "doctor": [],
+            "install-zellij": ["-c", "--connect", "--transport", "--dir"],
+        }
+
+        def _repl_complete(text: str, state: int):
+            try:
+                buf = readline.get_line_buffer()
+                begidx = readline.get_begidx()
+            except Exception:
+                buf = ""
+                begidx = 0
+
+            head = buf[:begidx]
+            try:
+                parts = shlex.split(head)
+            except ValueError:
+                parts = head.split()
+
+            candidates: list[str]
+            if not parts:
+                candidates = [c for c in repl_cmds if c.startswith(text)]
+            elif len(parts) == 1 and not head.endswith(" "):
+                candidates = [c for c in repl_cmds if c.startswith(text)]
+            else:
+                cmd = parts[0]
+                if text.startswith("-"):
+                    candidates = [o for o in repl_opts.get(cmd, []) if o.startswith(text)]
+                else:
+                    candidates = []
+
+            candidates = sorted(set(candidates))
+            if state < len(candidates):
+                return candidates[state]
+            return None
+
+        try:
+            readline.set_completer_delims(" \t\n")
+            readline.set_completer(_repl_complete)
+            try:
+                readline.parse_and_bind("tab: complete")
+            except Exception:
+                readline.parse_and_bind("bind ^I rl_complete")
+        except Exception:
+            pass
+
     if readline and server:
         try:
             for h in registry_history_list(server, token=token, limit=2000):
@@ -930,7 +999,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         + "interactive mode (shared history via server)\n"
         + "Commands: ls, open, attach(a), kill, refresh, update, doctor, install-zellij\n"
         + "Maintenance: refresh --prune / refresh --prune --prune-unreachable / update\n"
-        + "Type 'help' for full help, 'exit' to quit.\n\n"
+        + "Type 'help' for full help, Tab for completion, 'exit' to quit.\n\n"
     )
 
     while True:

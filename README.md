@@ -120,7 +120,7 @@ zagora> exit
 
 > 注意：`open/attach` 会进入交互式 zellij（相当于离开 REPL）。
 >
-> REPL 输入历史会保存到 server（不同机器/不同终端共享，↑/↓ 可翻阅）。
+> REPL 输入历史会保存到 server（不同机器/不同终端共享，↑/↓ 可翻阅），并支持 Tab 自动补全命令。
 
 ## 维护 / 清理 registry
 
