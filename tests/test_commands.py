@@ -7,12 +7,13 @@ from zagora.exec import ssh_via_tailscale, tailscale_ssh
 class TestCommands(unittest.TestCase):
     def test_tailscale_ssh_argv(self):
         argv = tailscale_ssh("C", ["zellij", "list-sessions"])
-        self.assertEqual(argv[:4], ["tailscale", "ssh", "C", "--"])
-        self.assertEqual(argv[4:], ["zellij", "list-sessions"])
+        self.assertEqual(argv[:5], ["tailscale", "ssh", "-Y", "C", "--"])
+        self.assertEqual(argv[5:], ["zellij", "list-sessions"])
 
     def test_ssh_via_tailscale_argv(self):
         argv = ssh_via_tailscale("C", ["zellij", "list-sessions"])
         self.assertEqual(argv[0], "ssh")
+        self.assertIn("-Y", argv)
         self.assertIn("ProxyCommand=tailscale nc %h %p", argv)
         self.assertIn("StrictHostKeyChecking=accept-new", argv)
 

@@ -42,7 +42,7 @@ def _tailscale_ip(host: str) -> str:
 
 
 def tailscale_ssh(host: str, remote_argv: Sequence[str], *, tty: bool = False) -> list[str]:
-    cmd = ["tailscale", "ssh"]
+    cmd = ["tailscale", "ssh", "-Y"]
     if tty:
         cmd.append("-t")
     cmd += [host, "--", *remote_argv]
@@ -53,6 +53,7 @@ def ssh_via_tailscale(host: str, remote_argv: Sequence[str], *, tty: bool = Fals
     h = _tailscale_ip(host)
     cmd = [
         "ssh",
+        "-Y",
         "-o",
         "ProxyCommand=tailscale nc %h %p",
         "-o",
