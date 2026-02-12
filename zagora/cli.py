@@ -255,7 +255,7 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 def cmd_completion(args: argparse.Namespace) -> int:
     shell = args.shell
 
-    subs = "serve open attach a ls kill refresh doctor install-zellij interactive i completion".split()
+    subs = "serve open attach a ls kill refresh update doctor install-zellij interactive i completion".split()
     global_opts = "--host --token --transport".split()
 
     # Per-subcommand options (short + long)
@@ -267,6 +267,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
         "ls": ["-c", "--connect", *global_opts],
         "kill": ["-c", "--connect", "-n", "--name", *global_opts],
         "refresh": ["-c", "--connect", "--prune", "--prune-unreachable", "--dry-run", *global_opts],
+        "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
         "doctor": [*global_opts],
         "install-zellij": ["-c", "--connect", "--dir", "--transport"],
         "interactive": [*global_opts],
@@ -561,6 +562,132 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    """Self-update zagora from GitHub.
+
+    Uses --force-reinstall so it can replace code even when the version
+    number stays the same.
+    """
+
+    import importlib.metadata as md
+    import json
+    import os
+    import subprocess
+    import urllib.request
+    from pathlib import Path
+
+    repo = getattr(args, "repo", None) or os.environ.get("ZAGORA_INSTALL_REPO", "followcat/zagora")
+    ref = getattr(args, "ref", None) or os.environ.get("ZAGORA_INSTALL_REF", "main")
+    zip_url = getattr(args, "zip_url", None) or os.environ.get("ZAGORA_INSTALL_ZIP_URL")
+    if not zip_url:
+        zip_url = f"https://github.com/{repo}/archive/refs/heads/{ref}.zip"
+
+    src = f"{repo}@{ref}"
+
+    # keep a small marker so we can tell whether REF moved even if version doesn't
+    data_home = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+    prefix = Path(data_home) / "zagora"
+    meta_file = prefix / "source.meta"
+
+    before_ver = ""
+    try:
+        before_ver = md.version("zagora")
+    except Exception:
+        before_ver = ""
+
+    before_src = ""
+    before_sha = ""
+    try:
+        before_meta = meta_file.read_text(encoding="utf-8").strip()
+        if before_meta:
+            parts = before_meta.split(None, 1)
+            before_src = parts[0]
+            if len(parts) > 1:
+                before_sha = parts[1].strip()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    remote_sha = ""
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/commits/{ref}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "zagora",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        sha = data.get("sha")
+        if isinstance(sha, str):
+            remote_sha = sha
+    except Exception:
+        remote_sha = ""
+
+    if remote_sha and not getattr(args, "force", False) and before_src == src and before_sha == remote_sha:
+        short = remote_sha[:12]
+        sys.stdout.write(f"zagora up-to-date: {src}@{short} (v{before_ver or '?'})\n")
+        return 0
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "-U",
+        "--force-reinstall",
+        "--no-cache-dir",
+        f"zagora @ {zip_url}",
+    ]
+    if getattr(args, "quiet", False):
+        cmd.insert(4, "-q")
+
+    p = subprocess.run(cmd, check=False)
+    if p.returncode != 0:
+        return p.returncode
+
+    # Best-effort readline support for REPL history navigation.
+    try:
+        import readline  # noqa: F401
+    except Exception:
+        try:
+            cmd2 = [sys.executable, "-m", "pip", "install", "-U", "gnureadline", "pyreadline3"]
+            if getattr(args, "quiet", False):
+                cmd2.insert(4, "-q")
+            subprocess.run(cmd2, check=False)
+        except Exception:
+            pass
+
+    after_ver = before_ver
+    try:
+        after_ver = md.version("zagora")
+    except Exception:
+        pass
+
+    if remote_sha:
+        try:
+            prefix.mkdir(parents=True, exist_ok=True)
+            meta_file.write_text(f"{src} {remote_sha}\n", encoding="utf-8")
+        except Exception:
+            pass
+
+        short = remote_sha[:12]
+        if before_sha and before_src == src and before_sha != remote_sha:
+            sys.stdout.write(f"zagora updated: {before_sha[:12]} -> {short} (v{after_ver or '?'})\n")
+        else:
+            sys.stdout.write(f"zagora updated: {src}@{short} (v{after_ver or '?'})\n")
+    else:
+        if before_ver and after_ver and before_ver != after_ver:
+            sys.stdout.write(f"zagora updated: v{before_ver} -> v{after_ver}\n")
+        else:
+            sys.stdout.write(f"zagora updated: v{after_ver or before_ver or '?'}\n")
+
+    sys.stdout.write("note: restart 'zagora' to use updated code\n")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     ok = True
     for cmd in ("tailscale", "ssh"):
@@ -720,6 +847,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_ref.add_argument("--dry-run", action="store_true", help="print actions without writing to server")
     p_ref.set_defaults(func=cmd_refresh)
 
+    # update
+    p_up = sp.add_parser(
+        "update",
+        help="update zagora client (force-reinstall from GitHub)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  zagora update\n"
+            "  zagora update --force\n"
+            "  zagora update --ref main\n"
+        ),
+    )
+    p_up.add_argument("--repo", help="GitHub repo (owner/repo); env: ZAGORA_INSTALL_REPO")
+    p_up.add_argument("--ref", help="Git ref/branch; env: ZAGORA_INSTALL_REF")
+    p_up.add_argument("--zip-url", help="override zip url; env: ZAGORA_INSTALL_ZIP_URL")
+    p_up.add_argument("--force", action="store_true", help="force reinstall even if up-to-date")
+    p_up.add_argument("-q", "--quiet", action="store_true", help="quiet pip output")
+    p_up.set_defaults(func=cmd_update)
+
     # doctor
     p_doc = sp.add_parser("doctor", help="check prerequisites and server connectivity")
     _add_common(p_doc)
@@ -782,8 +928,8 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         BANNER
         + "\n"
         + "interactive mode (shared history via server)\n"
-        + "Commands: ls, open, attach(a), kill, refresh, doctor, install-zellij\n"
-        + "Maintenance: refresh --prune / refresh --prune --prune-unreachable\n"
+        + "Commands: ls, open, attach(a), kill, refresh, update, doctor, install-zellij\n"
+        + "Maintenance: refresh --prune / refresh --prune --prune-unreachable / update\n"
         + "Type 'help' for full help, 'exit' to quit.\n\n"
     )
 

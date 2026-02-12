@@ -69,6 +69,16 @@ class TestParser(unittest.TestCase):
         args = p.parse_args(["kill", "--name", "Work"])
         self.assertEqual(args.cmd, "kill")
 
+    def test_refresh_parses(self):
+        p = build_parser()
+        args = p.parse_args(["refresh"])
+        self.assertEqual(args.cmd, "refresh")
+
+    def test_update_parses(self):
+        p = build_parser()
+        args = p.parse_args(["update"])
+        self.assertEqual(args.cmd, "update")
+
     def test_global_host_before_subcommand(self):
         p = build_parser()
         args = p.parse_args(["--host", "http://C:9876", "ls"])
