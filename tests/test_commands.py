@@ -31,6 +31,7 @@ class TestCommands(unittest.TestCase):
             rc = cli._exec_remote_interactive(args, "C", ["zellij", "attach", "Work"])
             self.assertEqual(rc, 0)
             self.assertEqual(run_mock.call_count, 2)
+            self.assertIn("preexec_fn", run_mock.call_args_list[1].kwargs)
             exec_mock.assert_not_called()
 
     def test_exec_remote_interactive_execs_outside_repl(self):

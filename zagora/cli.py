@@ -230,12 +230,22 @@ def _run_remote_capture(args: argparse.Namespace, host: str, remote_argv: list[s
 
 def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: list[str]) -> int:
     import subprocess
+    import signal
 
     repl_mode = bool(getattr(args, "_repl_mode", False))
 
     def _run_or_exec(argv: list[str]) -> int:
         if repl_mode:
-            return subprocess.run(argv, check=False).returncode
+            old = signal.getsignal(signal.SIGINT)
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+                return subprocess.run(
+                    argv,
+                    check=False,
+                    preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
+                ).returncode
+            finally:
+                signal.signal(signal.SIGINT, old)
         exec_interactive(argv)
         return 0
 
@@ -1114,9 +1124,12 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
     while True:
         try:
             line = input("zagora> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             sys.stdout.write("\n")
             return 0
+        except KeyboardInterrupt:
+            sys.stdout.write("\n")
+            continue
 
         if not line:
             continue
@@ -1165,6 +1178,9 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             rc = func(args2)
             if isinstance(rc, int) and rc != 0:
                 sys.stderr.write(f"zagora: command exited with {rc}\n")
+        except KeyboardInterrupt:
+            sys.stdout.write("\n")
+            continue
         except SystemExit:
             # argparse error; keep REPL running
             continue
