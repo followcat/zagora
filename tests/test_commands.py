@@ -124,6 +124,15 @@ class TestCommands(unittest.TestCase):
         text = "NT [Created 1h ago]\nWork [Created now]\n"
         self.assertEqual(cli._parse_zellij_ls_names(text), ["NT", "Work"])
         self.assertEqual(cli._parse_zellij_ls_names("No active zellij sessions found.\n"), [])
+        self.assertEqual(
+            cli._parse_zellij_ls_names("followcat@100.120.110.114's password:\nNTcli [Created now]\n"),
+            ["NTcli"],
+        )
+
+    def test_auth_or_transport_issue_detector(self):
+        self.assertTrue(cli._looks_like_auth_or_transport_issue("followcat@x password:"))
+        self.assertTrue(cli._looks_like_auth_or_transport_issue("Permission denied"))
+        self.assertFalse(cli._looks_like_auth_or_transport_issue("NTcli [Created now]"))
 
     def test_cmd_sync_registers_remote_and_removes_stale(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
@@ -143,6 +152,26 @@ class TestCommands(unittest.TestCase):
             reg_names = [c.args[1] for c in reg_mock.call_args_list]
             self.assertEqual(reg_names, ["A", "B"])
             rm_mock.assert_called_once_with("http://s:9876", "OLD", token=None)
+
+    def test_cmd_refresh_does_not_prune_on_password_prompt(self):
+        args = argparse.Namespace(host="http://s:9876", token=None, transport="auto", connect=None)
+        remote = subprocess.CompletedProcess(
+            args=["ssh"], returncode=255, stdout="", stderr="followcat@100.120.110.114's password:"
+        )
+        sessions = [{"name": "NTcli", "host": "v100", "status": "running"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=sessions),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_remove") as rm_mock,
+            patch("zagora.cli.registry_register") as reg_mock,
+        ):
+            rc = cli.cmd_refresh(args)
+            self.assertEqual(rc, 0)
+            rm_mock.assert_not_called()
+            reg_mock.assert_called_once_with("http://s:9876", "NTcli", "v100", token=None, status="unreachable")
 
 
 class TestParser(unittest.TestCase):

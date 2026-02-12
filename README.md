@@ -143,6 +143,8 @@ zagora refresh --no-prune-unreachable
 zagora sync -c v100
 ```
 
+> 安全保护：若 `refresh` 检测到 SSH 密码提示/鉴权异常等“非可靠输出”，会标记 `unreachable`，不会按 `missing` 误删。
+
 ## 快速开始
 
 ### 1. 启动 Server

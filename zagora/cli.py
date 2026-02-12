@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 import sys
 
@@ -315,19 +316,48 @@ def _parse_zellij_ls_names(output: str) -> list[str]:
         if not s:
             continue
         low = s.lower()
+        if _looks_like_auth_or_transport_issue(low):
+            continue
         if (
             low.startswith("no active zellij session")
             or low.startswith("no zellij sessions")
             or low.startswith("no active sessions")
         ):
             continue
-        first = s.split()[0]
-        if first.lower() in {"name", "session", "sessions"}:
+        tokens = s.split()
+        candidate = None
+        for tok in tokens:
+            cleaned = tok.strip("[](){}<>,;:|")
+            if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", cleaned):
+                candidate = cleaned
+                break
+        if candidate is None:
             continue
-        if first not in seen:
-            out.append(first)
-            seen.add(first)
+        if candidate.lower() in {"name", "session", "sessions", "created"}:
+            continue
+        if candidate not in seen:
+            out.append(candidate)
+            seen.add(candidate)
     return out
+
+
+def _looks_like_auth_or_transport_issue(text: str) -> bool:
+    low = (text or "").lower()
+    markers = [
+        "password:",
+        "permission denied",
+        "host key verification failed",
+        "could not resolve hostname",
+        "connection timed out",
+        "connection refused",
+        "connection reset",
+        "connection closed",
+        "no route to host",
+        "kex_exchange_identification",
+        "remote host identification has changed",
+        "ssh: ",
+    ]
+    return any(m in low for m in markers)
 
 
 def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
@@ -706,8 +736,22 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             continue
 
         p = _run_remote_capture(args, host, _zellij_remote(["ls"]))
+        combined_io = f"{p.stdout or ''}\n{p.stderr or ''}"
+        auth_or_transport_issue = _looks_like_auth_or_transport_issue(combined_io)
         if p.returncode != 0:
             # host unreachable (or zellij missing)
+            if auth_or_transport_issue:
+                # Ambiguous (eg password prompt/auth issue): do not auto-delete.
+                new_status = "unreachable"
+                if s.get("status") != new_status:
+                    sys.stdout.write(f"  ~ {name}\t{host}\t{new_status}\n")
+                    if not dry_run:
+                        try:
+                            registry_register(server, name, host, token=token, status=new_status)
+                            updated += 1
+                        except RegistryError:
+                            pass
+                continue
             if prune_unreachable:
                 sys.stdout.write(f"  - {name}\t{host}\tunreachable -> remove\n")
                 if not dry_run:
@@ -730,6 +774,18 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             continue
 
         remote_set = set(_parse_zellij_ls_names(p.stdout or ""))
+        if not remote_set and auth_or_transport_issue:
+            # Password prompt or SSH transport issue leaked into output; not safe to prune.
+            new_status = "unreachable"
+            if s.get("status") != new_status:
+                sys.stdout.write(f"  ~ {name}\t{host}\t{new_status}\n")
+                if not dry_run:
+                    try:
+                        registry_register(server, name, host, token=token, status=new_status)
+                        updated += 1
+                    except RegistryError:
+                        pass
+            continue
         found = name in remote_set
 
         if found:
