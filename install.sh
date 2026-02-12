@@ -29,7 +29,16 @@ need() {
 need python3
 
 mkdir -p "$PREFIX"
-python3 -m venv "$VENV"
+
+if [ ! -x "$VENV/bin/python" ]; then
+  python3 -m venv "$VENV"
+fi
+
+get_zagora_version() {
+  "$VENV/bin/python" -c 'import importlib.metadata as m; print(m.version("zagora"))' 2>/dev/null || true
+}
+
+before_ver="$(get_zagora_version)"
 
 "$VENV/bin/python" -m pip -q install -U pip setuptools wheel
 "$VENV/bin/python" -m pip -q install -U "zagora @ ${ZIP_URL}"
@@ -40,10 +49,21 @@ if ! "$VENV/bin/python" -c 'import readline' >/dev/null 2>&1; then
   "$VENV/bin/python" -m pip -q install -U gnureadline pyreadline3 || true
 fi
 
+after_ver="$(get_zagora_version)"
+if [ -z "$before_ver" ] && [ -n "$after_ver" ]; then
+  echo "zagora installed: v$after_ver"
+elif [ -n "$before_ver" ] && [ -n "$after_ver" ] && [ "$before_ver" = "$after_ver" ]; then
+  echo "zagora already up-to-date: v$after_ver"
+elif [ -n "$before_ver" ] && [ -n "$after_ver" ]; then
+  echo "zagora updated: v$before_ver -> v$after_ver"
+else
+  echo "zagora installed/updated"
+fi
+
 mkdir -p "$BIN_DIR"
 ln -sf "$VENV/bin/zagora" "$BIN_DIR/zagora"
 
-echo "installed: $BIN_DIR/zagora"
+echo "linked: $BIN_DIR/zagora"
 
 # Ensure ~/.local/bin in PATH (best-effort; idempotent)
 path_line='export PATH="$HOME/.local/bin:$PATH"'
@@ -51,6 +71,7 @@ path_line='export PATH="$HOME/.local/bin:$PATH"'
 add_to_profile() {
   local f="$1"
   if [ -f "$f" ] && grep -qF "$HOME/.local/bin" "$f" 2>/dev/null; then
+    echo "ok: $f already has ~/.local/bin in PATH"
     return
   fi
   if [ -f "$f" ] || [ -d "$(dirname "$f")" ]; then
@@ -74,7 +95,7 @@ case "$current_shell" in
   fish)
     fishconf="$HOME/.config/fish/config.fish"
     if [ -f "$fishconf" ] && grep -qF "$HOME/.local/bin" "$fishconf" 2>/dev/null; then
-      :
+      echo "ok: $fishconf already has ~/.local/bin in PATH"
     elif [ -d "$HOME/.config/fish" ]; then
       printf '\n# Added by zagora installer\nset -gx PATH $HOME/.local/bin $PATH\n' >> "$fishconf"
       echo "updated: $fishconf"
