@@ -367,6 +367,33 @@ def _looks_like_auth_or_transport_issue(text: str) -> bool:
     return any(m in low for m in markers)
 
 
+def _reconcile_session_after_interactive(
+    args: argparse.Namespace,
+    server: str,
+    token: str | None,
+    target: str,
+    name: str,
+) -> None:
+    """After REPL attach/open exits, reconcile registry with remote reality."""
+    if not getattr(args, "_repl_mode", False):
+        return
+
+    p = _run_remote_capture(args, target, _zellij_remote(["ls"]))
+    io_text = f"{p.stdout or ''}\n{p.stderr or ''}"
+    if p.returncode != 0 or _looks_like_auth_or_transport_issue(io_text):
+        return
+
+    remote_set = set(_parse_zellij_ls_names(p.stdout or ""))
+    try:
+        if name in remote_set:
+            registry_register(server, name, target, token=token, status="running")
+        else:
+            registry_remove(server, name, token=token)
+    except RegistryError as e:
+        if getattr(e, "code", None) != 404:
+            sys.stderr.write(f"zagora: warning: failed to reconcile session '{name}': {e}\n")
+
+
 def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
     """Rewrite convenient REPL shorthand into regular CLI flags."""
     if not argv:
@@ -567,7 +594,10 @@ def cmd_open(args: argparse.Namespace) -> int:
     registry_register(server, name, target, token=token)
 
     remote = _zellij_remote(["attach", "--create", name])
-    return _exec_remote_interactive(args, target, remote)
+    rc = _exec_remote_interactive(args, target, remote)
+    if isinstance(rc, int) and rc == 0:
+        _reconcile_session_after_interactive(args, server, token, target, name)
+    return rc
 
 
 def cmd_attach(args: argparse.Namespace) -> int:
@@ -589,7 +619,10 @@ def cmd_attach(args: argparse.Namespace) -> int:
             raise ZagoraError(f"session '{name}' has no host in registry")
 
     remote = _zellij_remote(["attach", name])
-    return _exec_remote_interactive(args, target, remote)
+    rc = _exec_remote_interactive(args, target, remote)
+    if isinstance(rc, int) and rc == 0:
+        _reconcile_session_after_interactive(args, server, token, target, name)
+    return rc
 
 
 def cmd_ls(args: argparse.Namespace) -> int:

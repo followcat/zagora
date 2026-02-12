@@ -118,7 +118,7 @@ zagora> kill v100 NT        # 等价于 kill -c v100 -n NT
 zagora> exit
 ```
 
-> 注意：`open/attach` 会进入交互式 zellij；退出远端会话后会返回 REPL。
+> 注意：`open/attach` 会进入交互式 zellij；退出远端会话后会返回 REPL。若 session 已被 `session quit` 结束，会自动从 registry 清理。
 >
 > REPL 输入历史会保存到 server（不同机器/不同终端共享，↑/↓ 可翻阅），并支持 Tab 自动补全命令。
 

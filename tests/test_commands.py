@@ -214,6 +214,52 @@ class TestCommands(unittest.TestCase):
             rm_mock.assert_not_called()
             reg_mock.assert_called_once_with("http://s:9876", "NTcli", "v100", token=None, status="unreachable")
 
+    def test_cmd_attach_reconcile_removes_when_session_quit(self):
+        args = argparse.Namespace(
+            host="http://s:9876",
+            token=None,
+            transport="auto",
+            connect="v100",
+            name="NT",
+            _repl_mode=True,
+        )
+        remote_ls = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="NTcli\n", stderr="")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._exec_remote_interactive", return_value=0),
+            patch("zagora.cli._run_remote_capture", return_value=remote_ls),
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_attach(args)
+            self.assertEqual(rc, 0)
+            rm_mock.assert_called_once_with("http://s:9876", "NT", token=None)
+
+    def test_cmd_attach_reconcile_keeps_when_still_running(self):
+        args = argparse.Namespace(
+            host="http://s:9876",
+            token=None,
+            transport="auto",
+            connect="v100",
+            name="NT",
+            _repl_mode=True,
+        )
+        remote_ls = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="NT [Created now]\n", stderr="")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._exec_remote_interactive", return_value=0),
+            patch("zagora.cli._run_remote_capture", return_value=remote_ls),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_attach(args)
+            self.assertEqual(rc, 0)
+            reg_mock.assert_called_once_with("http://s:9876", "NT", "v100", token=None, status="running")
+            rm_mock.assert_not_called()
+
 
 class TestParser(unittest.TestCase):
     def test_serve(self):
