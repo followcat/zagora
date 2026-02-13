@@ -464,6 +464,34 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 0)
             rm_mock.assert_called_once_with("http://s:9876", "NT", token=None, host="v100")
 
+    def test_cmd_attach_reconcile_removes_when_ls_returns_nonzero_but_definitive(self):
+        args = argparse.Namespace(
+            host="http://s:9876",
+            token=None,
+            transport="auto",
+            connect="v100",
+            name="NT",
+            _repl_mode=True,
+        )
+        remote_ls = subprocess.CompletedProcess(
+            args=["ssh"],
+            returncode=1,
+            stdout="No active zellij sessions found.\n",
+            stderr="",
+        )
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._exec_remote_interactive", return_value=0),
+            patch("zagora.cli._run_remote_capture", return_value=remote_ls),
+            patch("zagora.cli.registry_ls", return_value=[{"name": "NT", "host": "v100"}]),
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_attach(args)
+            self.assertEqual(rc, 0)
+            rm_mock.assert_called_once_with("http://s:9876", "NT", token=None, host="v100")
+
     def test_cmd_attach_uses_positional_name(self):
         args = argparse.Namespace(
             host="http://s:9876",
