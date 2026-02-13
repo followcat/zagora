@@ -164,6 +164,8 @@ class TestCommands(unittest.TestCase):
     def test_repl_shorthand_open(self):
         out = cli._rewrite_repl_shorthand(["open", "v100", "NT"])
         self.assertEqual(out, ["open", "-c", "v100", "-n", "NT"])
+        out2 = cli._rewrite_repl_shorthand(["open", "-c", "v100", "NT"])
+        self.assertEqual(out2, ["open", "-c", "v100", "-n", "NT"])
 
     def test_repl_shorthand_attach_and_kill(self):
         self.assertEqual(cli._rewrite_repl_shorthand(["a", "NT"]), ["a", "-n", "NT"])
@@ -217,6 +219,11 @@ class TestCommands(unittest.TestCase):
             cli._parse_zellij_ls_names("NT (EXITED - attach to resurrect)\n"),
             [],
         )
+
+    def test_zellij_open_remote_prefers_session_flag(self):
+        argv = cli._zellij_open_remote("NT")
+        self.assertEqual(argv[:2], ["sh", "-lc"])
+        self.assertIn("--session", argv[2])
 
     def test_cmd_open_blocks_legacy_ansi_duplicate(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
@@ -325,6 +332,24 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 1)
             reg_mock.assert_not_called()
             rm_mock.assert_not_called()
+
+    def test_cmd_sync_treats_exited_only_output_as_definitive_empty(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="A (EXITED - attach to resurrect)\n", stderr="")
+        current = [{"name": "A", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            reg_mock.assert_not_called()
+            rm_mock.assert_called_once_with("http://s:9876", "A", token=None, host="v100")
 
     def test_cmd_sync_parses_sessions_from_stderr(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")

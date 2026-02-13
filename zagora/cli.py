@@ -223,6 +223,21 @@ def _zellij_remote(argv: list[str]) -> list[str]:
     return ["sh", "-lc", shlex.quote(script)]
 
 
+def _zellij_open_remote(name: str) -> list[str]:
+    qname = shlex.quote(name)
+    script = (
+        "if command -v zellij >/dev/null 2>&1; then "
+        f'if zellij --help 2>/dev/null | grep -q -- "--session"; then exec zellij --session {qname}; '
+        f"else exec zellij attach --create {qname}; fi; "
+        'elif [ -x "$HOME/.local/bin/zellij" ]; then '
+        'if "$HOME/.local/bin/zellij" --help 2>/dev/null | grep -q -- "--session"; then '
+        f'exec "$HOME/.local/bin/zellij" --session {qname}; '
+        f'else exec "$HOME/.local/bin/zellij" attach --create {qname}; fi; '
+        'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi'
+    )
+    return ["sh", "-lc", shlex.quote(script)]
+
+
 def _hostkey_problem(stderr: str) -> bool:
     return _HOSTKEY_ERR in (stderr or "") or "Host key verification failed" in (stderr or "")
 
@@ -365,11 +380,16 @@ def _is_definitive_zellij_ls_output(output_text: str, parsed_names: set[str]) ->
     if parsed_names:
         return True
     low = (output_text or "").lower()
-    return (
+    if (
         "no active zellij session" in low
         or "no zellij sessions" in low
         or "no active sessions" in low
-    )
+    ):
+        return True
+    # Exited-only listings are still definitive for "running sessions = 0".
+    if re.search(r"\bexited\b", low):
+        return True
+    return False
 
 
 def _looks_like_auth_or_transport_issue(text: str) -> bool:
@@ -579,6 +599,16 @@ def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
             and all(not x.startswith("-") for x in rest)
         ):
             return ["open", "-c", rest[0], "-n", rest[1]]
+        # open -c <host> <session>
+        if (
+            _has_any(("-c", "--connect"))
+            and not _has_any(("-n", "--name"))
+            and len(rest) == 3
+            and rest[1] and not rest[1].startswith("-")
+            and rest[2] and not rest[2].startswith("-")
+            and rest[0] in {"-c", "--connect"}
+        ):
+            return ["open", rest[0], rest[1], "-n", rest[2]]
         return argv
 
     # attach/kill shorthand:
@@ -762,7 +792,7 @@ def cmd_open(args: argparse.Namespace) -> int:
     # register with server before exec (exec replaces process)
     registry_register(server, name, target, token=token)
 
-    remote = _zellij_remote(["attach", "--create", name])
+    remote = _zellij_open_remote(name)
     rc = _exec_remote_interactive(args, target, remote)
     if isinstance(rc, int) and rc == 0:
         _reconcile_session_after_interactive(args, server, token, target, name)
