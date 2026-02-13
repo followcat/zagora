@@ -271,6 +271,7 @@ class TestCommands(unittest.TestCase):
 
     def test_cmd_open_removes_registry_entry_when_open_fails(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
+        delete_p = subprocess.CompletedProcess(args=["ssh"], returncode=1, stdout="", stderr="")
         with (
             patch("zagora.cli.require_cmd"),
             patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
@@ -278,11 +279,33 @@ class TestCommands(unittest.TestCase):
             patch("zagora.cli.registry_ls", return_value=[]),
             patch("zagora.cli.registry_register"),
             patch("zagora.cli._exec_remote_interactive", return_value=1),
+            patch("zagora.cli._run_remote_capture", return_value=delete_p),
             patch("zagora.cli._remove_registry_name_variants") as rm_mock,
         ):
             rc = cli.cmd_open(args)
             self.assertEqual(rc, 1)
             rm_mock.assert_called_once_with("http://s:9876", None, "v100", "NT")
+
+    def test_cmd_open_retries_after_delete_dead_session(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
+        delete_p = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=[]),
+            patch("zagora.cli.registry_register"),
+            patch("zagora.cli._exec_remote_interactive", side_effect=[1, 0]) as open_mock,
+            patch("zagora.cli._run_remote_capture", return_value=delete_p) as del_mock,
+            patch("zagora.cli._remove_registry_name_variants") as rm_mock,
+            patch("zagora.cli._reconcile_session_after_interactive") as rec_mock,
+        ):
+            rc = cli.cmd_open(args)
+            self.assertEqual(rc, 0)
+            self.assertEqual(open_mock.call_count, 2)
+            del_mock.assert_called_once()
+            rm_mock.assert_not_called()
+            rec_mock.assert_called_once_with(args, "http://s:9876", None, "v100", "NT")
 
     def test_lookup_session_host_falls_back_to_legacy_normalized_name(self):
         with (

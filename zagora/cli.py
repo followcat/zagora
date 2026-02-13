@@ -820,7 +820,18 @@ def cmd_open(args: argparse.Namespace) -> int:
         if rc == 0:
             _reconcile_session_after_interactive(args, server, token, target, name)
         else:
-            # If open failed in REPL mode, avoid leaving stale registry entry.
+            # Open can fail when a same-name dead session exists on remote.
+            # Best-effort: delete the dead session and retry once.
+            p_del = _run_remote_capture(args, target, _zellij_remote(["delete-session", name]))
+            if p_del.returncode == 0:
+                rc2 = _exec_remote_interactive(args, target, remote)
+                if isinstance(rc2, int):
+                    rc = rc2
+                if rc == 0:
+                    _reconcile_session_after_interactive(args, server, token, target, name)
+                    return rc
+        # If open failed in REPL mode, avoid leaving stale registry entry.
+        if rc != 0:
             _remove_registry_name_variants(server, token, target, name)
     return rc
 
