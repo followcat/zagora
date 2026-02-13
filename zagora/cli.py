@@ -870,7 +870,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
     combined_io = f"{p.stdout or ''}\n{p.stderr or ''}"
     auth_or_transport_issue = _looks_like_auth_or_transport_issue(combined_io)
-    remote_names = _parse_zellij_ls_names(p.stdout or "")
+    remote_names = _parse_zellij_ls_names(combined_io)
 
     try:
         current_sessions = registry_ls(server, token=token, host=target)
@@ -889,15 +889,22 @@ def cmd_sync(args: argparse.Namespace) -> int:
             if isinstance(raw, str):
                 current_raw_by_norm[n].append(raw)
 
-    if not remote_names and current_names and auth_or_transport_issue:
+    definitive = _is_definitive_zellij_ls_output(combined_io, set(remote_names))
+    if not remote_names and current_names and (auth_or_transport_issue or not definitive):
+        reason = (
+            "ssh/auth prompt seen"
+            if auth_or_transport_issue
+            else "remote session list is empty but not definitive"
+        )
         sys.stderr.write(
-            "zagora: sync skipped destructive changes (ssh/auth prompt seen and remote session list is empty)\n"
+            f"zagora: sync skipped destructive changes ({reason})\n"
         )
         return 1
 
     added = 0
     updated = 0
-    removed = 0
+    removed_sessions = 0
+    removed_aliases = 0
     failed = 0
 
     remote_norm_names = [_normalize_session_name(n) for n in remote_names]
@@ -922,7 +929,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 continue
             try:
                 registry_remove(server, raw_name, token=token, host=target)
-                removed += 1
+                removed_aliases += 1
             except RegistryError as e:
                 if getattr(e, "code", None) == 404:
                     continue
@@ -932,12 +939,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
     stale_norm = sorted(current_names - remote_set)
     for norm_name in stale_norm:
         raw_names = current_raw_by_norm.get(norm_name, [norm_name]) or [norm_name]
-        removed_any = False
+        removed_raw = 0
         for raw_name in raw_names:
             try:
                 registry_remove(server, raw_name, token=token, host=target)
-                removed += 1
-                removed_any = True
+                removed_raw += 1
             except RegistryError as e:
                 if getattr(e, "code", None) == 404:
                     # Already removed/raced by another client, treat as benign.
@@ -945,13 +951,17 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 failed += 1
                 sys.stderr.write(f"zagora: warning: failed to remove stale '{norm_name}': {e}\n")
         # If all deletions returned 404 we still consider it reconciled.
-        if not removed_any:
+        if not removed_raw:
             continue
+        removed_sessions += 1
+        if removed_raw > 1:
+            removed_aliases += (removed_raw - 1)
 
     discovered = len(remote_norm_names)
-    sys.stdout.write(
-        f"synced {target}: discovered {discovered}, added {added}, updated {updated}, removed {removed}\n"
-    )
+    line = f"synced {target}: discovered {discovered}, added {added}, updated {updated}, removed {removed_sessions}"
+    if removed_aliases:
+        line += f" (aliases {removed_aliases})"
+    sys.stdout.write(line + "\n")
     if failed:
         sys.stderr.write(f"zagora: sync completed with {failed} errors\n")
         return 1

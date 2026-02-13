@@ -308,6 +308,41 @@ class TestCommands(unittest.TestCase):
             reg_mock.assert_not_called()
             rm_mock.assert_not_called()
 
+    def test_cmd_sync_skips_destructive_when_empty_output_not_definitive(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        current = [{"name": "A", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 1)
+            reg_mock.assert_not_called()
+            rm_mock.assert_not_called()
+
+    def test_cmd_sync_parses_sessions_from_stderr(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="A [Created now]\nB [Created now]\n")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=[]),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove"),
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            reg_names = [c.args[1] for c in reg_mock.call_args_list]
+            self.assertEqual(reg_names, ["A", "B"])
+
     def test_cmd_sync_ignore_404_when_removing_stale(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
         remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="A\n", stderr="")
