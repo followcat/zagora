@@ -121,7 +121,7 @@ zagora> exit
 > 注意：`open/attach` 会进入交互式 zellij；退出远端会话后会返回 REPL。若 session 已被 `session quit` 结束，会自动从 registry 清理。
 >
 > 为避免与 Copilot 快捷键冲突，zagora 启动的远端 zellij 默认会进入 `lock` 模式（通过注入配置实现）。
-> 需要退出 zellij 时先 `Ctrl-g` 退出 lock，再按 `Ctrl-q` 退出。
+> 需要退出 zellij 时先 `Ctrl-g` 退出 lock，再按 `Ctrl-q` 退出；`Ctrl-d` 默认被拦截，不会直接退出。
 >
 > REPL 输入历史会保存到 server（不同机器/不同终端共享，↑/↓ 可翻阅），并支持 Tab 自动补全命令。
 
