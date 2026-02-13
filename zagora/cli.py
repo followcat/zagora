@@ -341,6 +341,9 @@ def _parse_zellij_ls_names(output: str) -> list[str]:
             or low.startswith("no active sessions")
         ):
             continue
+        # Exited/resurrectable sessions should not be treated as running.
+        if re.search(r"[\[(]\s*exited\b", low):
+            continue
         tokens = s.split()
         candidate = None
         for tok in tokens:
