@@ -398,7 +398,7 @@ zagora 通过 Tailscale 网络连接目标机器，支持两种 SSH 传输模式
 
 `auto` 模式处理逻辑：先尝试 `tailscale ssh`（利用 tailnet 身份认证，无需密码/密钥），如果遇到 host key 验证失败则自动回退到系统 `ssh`（设置 `StrictHostKeyChecking=accept-new`）。
 
-系统 `ssh` 路径默认启用连接复用（`ControlPersist=120`），可通过 `--ssh-control-persist` / `ZAGORA_SSH_CONTROL_PERSIST` / `config.json` 的 `ssh_control_persist` 调整，如 `15m`、`1h`；设为 `off` 可关闭。
+系统 `ssh` 路径默认启用连接复用（`ControlPersist=12h`），可通过 `--ssh-control-persist` / `ZAGORA_SSH_CONTROL_PERSIST` / `config.json` 的 `ssh_control_persist` 调整，如 `15m`、`1h`；设为 `off` 可关闭。
 
 
 ## License

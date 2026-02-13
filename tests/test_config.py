@@ -64,4 +64,4 @@ class TestResolveSshControlPersist(unittest.TestCase):
     def test_default_used(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             with mock.patch("zagora.config.load_config", return_value={}):
-                self.assertEqual(resolve_ssh_control_persist(None), "120")
+                self.assertEqual(resolve_ssh_control_persist(None), "12h")

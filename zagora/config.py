@@ -79,4 +79,4 @@ def resolve_ssh_control_persist(cli_value: str | None = None) -> str:
     if isinstance(value, (int, float)):
         return str(int(value))
 
-    return "120"
+    return "12h"

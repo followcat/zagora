@@ -59,7 +59,7 @@ def ssh_via_tailscale(
     *,
     tty: bool = False,
     x11: bool = False,
-    control_persist: str | None = "120",
+    control_persist: str | None = "12h",
 ) -> list[str]:
     h = _tailscale_ip(host)
     cmd = ["ssh"]

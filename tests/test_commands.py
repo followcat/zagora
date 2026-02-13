@@ -27,7 +27,7 @@ class TestCommands(unittest.TestCase):
         self.assertIn("ProxyCommand=tailscale nc %h %p", argv)
         self.assertIn("StrictHostKeyChecking=accept-new", argv)
         self.assertIn("ControlMaster=auto", argv)
-        self.assertIn("ControlPersist=120", argv)
+        self.assertIn("ControlPersist=12h", argv)
         self.assertIn("ControlPath=~/.ssh/zagora-%C", argv)
 
     def test_ssh_via_tailscale_argv_with_x11(self):
@@ -37,14 +37,14 @@ class TestCommands(unittest.TestCase):
         self.assertIn("ProxyCommand=tailscale nc %h %p", argv)
         self.assertIn("StrictHostKeyChecking=accept-new", argv)
         self.assertIn("ControlMaster=auto", argv)
-        self.assertIn("ControlPersist=120", argv)
+        self.assertIn("ControlPersist=12h", argv)
         self.assertIn("ControlPath=~/.ssh/zagora-%C", argv)
 
     def test_ssh_via_tailscale_argv_without_connection_cache(self):
         argv = ssh_via_tailscale("C", ["zellij", "list-sessions"], control_persist="off")
         self.assertEqual(argv[0], "ssh")
         self.assertNotIn("ControlMaster=auto", argv)
-        self.assertNotIn("ControlPersist=120", argv)
+        self.assertNotIn("ControlPersist=12h", argv)
         self.assertNotIn("ControlPath=~/.ssh/zagora-%C", argv)
 
     def test_exec_remote_interactive_uses_subprocess_in_repl(self):
