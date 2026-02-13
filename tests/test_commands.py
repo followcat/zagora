@@ -12,11 +12,23 @@ from zagora.exec import ssh_via_tailscale, tailscale_ssh
 class TestCommands(unittest.TestCase):
     def test_tailscale_ssh_argv(self):
         argv = tailscale_ssh("C", ["zellij", "list-sessions"])
+        self.assertEqual(argv[:4], ["tailscale", "ssh", "C", "--"])
+        self.assertEqual(argv[4:], ["zellij", "list-sessions"])
+
+    def test_tailscale_ssh_argv_with_x11(self):
+        argv = tailscale_ssh("C", ["zellij", "list-sessions"], x11=True)
         self.assertEqual(argv[:5], ["tailscale", "ssh", "-Y", "C", "--"])
         self.assertEqual(argv[5:], ["zellij", "list-sessions"])
 
     def test_ssh_via_tailscale_argv(self):
         argv = ssh_via_tailscale("C", ["zellij", "list-sessions"])
+        self.assertEqual(argv[0], "ssh")
+        self.assertNotIn("-Y", argv)
+        self.assertIn("ProxyCommand=tailscale nc %h %p", argv)
+        self.assertIn("StrictHostKeyChecking=accept-new", argv)
+
+    def test_ssh_via_tailscale_argv_with_x11(self):
+        argv = ssh_via_tailscale("C", ["zellij", "list-sessions"], x11=True)
         self.assertEqual(argv[0], "ssh")
         self.assertIn("-Y", argv)
         self.assertIn("ProxyCommand=tailscale nc %h %p", argv)
@@ -101,6 +113,41 @@ class TestCommands(unittest.TestCase):
             self.assertIn("seen:2026-02-12 08:08:08", text)
             self.assertIn("health:2026-02-12 08:09:09", text)
 
+    def test_cmd_ls_merges_legacy_ansi_names(self):
+        args = argparse.Namespace(host="http://s:9876", token=None, connect=None)
+        sessions = [
+            {"name": "\x1b[32;1mNT\x1b[m", "host": "v100", "status": "running", "last_seen": "2026-02-12T08:00:00+00:00"},
+            {"name": "NT", "host": "v100", "status": "running", "last_seen": "2026-02-12T08:10:00+00:00"},
+        ]
+        with (
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=sessions),
+            patch("sys.stdout", new_callable=io.StringIO) as out,
+        ):
+            rc = cli.cmd_ls(args)
+            self.assertEqual(rc, 0)
+            lines = [ln for ln in out.getvalue().splitlines() if "\t" in ln]
+            self.assertEqual(len(lines), 1)
+            self.assertIn("NT\tv100\trunning", lines[0])
+
+    def test_cmd_ls_keeps_same_name_on_different_hosts(self):
+        args = argparse.Namespace(host="http://s:9876", token=None, connect=None)
+        sessions = [
+            {"name": "NT", "host": "v100", "status": "running", "last_seen": "2026-02-12T08:10:00+00:00"},
+            {"name": "NT", "host": "t14", "status": "running", "last_seen": "2026-02-12T08:11:00+00:00"},
+        ]
+        with (
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=sessions),
+            patch("sys.stdout", new_callable=io.StringIO) as out,
+        ):
+            rc = cli.cmd_ls(args)
+            self.assertEqual(rc, 0)
+            lines = [ln for ln in out.getvalue().splitlines() if "\t" in ln]
+            self.assertEqual(len(lines), 2)
+
     def test_repl_shorthand_open(self):
         out = cli._rewrite_repl_shorthand(["open", "v100", "NT"])
         self.assertEqual(out, ["open", "-c", "v100", "-n", "NT"])
@@ -134,6 +181,52 @@ class TestCommands(unittest.TestCase):
             ["NTcli"],
         )
 
+    def test_cmd_open_blocks_legacy_ansi_duplicate(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=[{"name": "\x1b[32;1mNT\x1b[m", "host": "v100"}]),
+            patch("zagora.cli.registry_register") as reg_mock,
+        ):
+            with self.assertRaises(cli.ZagoraError):
+                cli.cmd_open(args)
+            reg_mock.assert_not_called()
+
+    def test_cmd_open_allows_same_name_on_other_host(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=[{"name": "NT", "host": "t14"}]),
+            patch("zagora.cli.registry_register"),
+            patch("zagora.cli._exec_remote_interactive", return_value=0),
+            patch("zagora.cli._reconcile_session_after_interactive"),
+        ):
+            rc = cli.cmd_open(args)
+            self.assertEqual(rc, 0)
+
+    def test_lookup_session_host_falls_back_to_legacy_normalized_name(self):
+        with (
+            patch("zagora.cli.registry_ls", return_value=[{"name": "\x1b[32;1mNT\x1b[m", "host": "v100"}]),
+        ):
+            host = cli._lookup_session_host("http://s:9876", None, "NT")
+            self.assertEqual(host, "v100")
+
+    def test_lookup_session_target_supports_case_insensitive_and_prefix(self):
+        with (
+            patch("zagora.cli.registry_ls", return_value=[{"name": "GpuCheck", "host": "v100"}]),
+        ):
+            host, resolved = cli._lookup_session_target("http://s:9876", None, "gpu")
+            self.assertEqual(host, "v100")
+            self.assertEqual(resolved, "GpuCheck")
+
+    def test_resolve_name_arg_accepts_positional(self):
+        args = argparse.Namespace(name=None, name_pos="gpucheck")
+        self.assertEqual(cli._resolve_name_arg(args), "gpucheck")
+
     def test_auth_or_transport_issue_detector(self):
         self.assertTrue(cli._looks_like_auth_or_transport_issue("followcat@x password:"))
         self.assertTrue(cli._looks_like_auth_or_transport_issue("Permission denied"))
@@ -156,7 +249,7 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 0)
             reg_names = [c.args[1] for c in reg_mock.call_args_list]
             self.assertEqual(reg_names, ["A", "B"])
-            rm_mock.assert_called_once_with("http://s:9876", "OLD", token=None)
+            rm_mock.assert_called_once_with("http://s:9876", "OLD", token=None, host="v100")
 
     def test_cmd_sync_skips_destructive_when_password_prompt_and_empty(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
@@ -194,6 +287,44 @@ class TestCommands(unittest.TestCase):
             rc = cli.cmd_sync(args)
             self.assertEqual(rc, 0)
 
+    def test_cmd_sync_removes_all_legacy_name_variants(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="No active zellij sessions found.\n", stderr="")
+        current = [{"name": "NT", "host": "v100"}, {"name": "\x1b[32;1mNT\x1b[m", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register"),
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            removed_names = [c.args[1] for c in rm_mock.call_args_list]
+            self.assertCountEqual(removed_names, ["NT", "\x1b[32;1mNT\x1b[m"])
+            self.assertTrue(all(c.kwargs.get("host") == "v100" for c in rm_mock.call_args_list))
+
+    def test_cmd_sync_cleans_legacy_alias_when_session_running(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="NT\n", stderr="")
+        current = [{"name": "NT", "host": "v100"}, {"name": "\x1b[32;1mNT\x1b[m", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register"),
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            removed_names = [c.args[1] for c in rm_mock.call_args_list]
+            self.assertEqual(removed_names, ["\x1b[32;1mNT\x1b[m"])
+            self.assertTrue(all(c.kwargs.get("host") == "v100" for c in rm_mock.call_args_list))
+
     def test_cmd_refresh_does_not_prune_on_password_prompt(self):
         args = argparse.Namespace(host="http://s:9876", token=None, transport="auto", connect=None)
         remote = subprocess.CompletedProcess(
@@ -214,6 +345,32 @@ class TestCommands(unittest.TestCase):
             rm_mock.assert_not_called()
             reg_mock.assert_called_once_with("http://s:9876", "NTcli", "v100", token=None, status="unreachable")
 
+    def test_cmd_kill_removes_legacy_variants(self):
+        args = argparse.Namespace(
+            host="http://s:9876",
+            token=None,
+            transport="auto",
+            connect="v100",
+            name="NT",
+        )
+        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch(
+                "zagora.cli.registry_ls",
+                return_value=[{"name": "NT", "host": "v100"}, {"name": "\x1b[32;1mNT\x1b[m", "host": "v100"}],
+            ),
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_kill(args)
+            self.assertEqual(rc, 0)
+            removed_names = [c.args[1] for c in rm_mock.call_args_list]
+            self.assertCountEqual(removed_names, ["NT", "\x1b[32;1mNT\x1b[m"])
+            self.assertTrue(all(c.kwargs.get("host") == "v100" for c in rm_mock.call_args_list))
+
     def test_cmd_attach_reconcile_removes_when_session_quit(self):
         args = argparse.Namespace(
             host="http://s:9876",
@@ -230,11 +387,17 @@ class TestCommands(unittest.TestCase):
             patch("zagora.cli._token", return_value=None),
             patch("zagora.cli._exec_remote_interactive", return_value=0),
             patch("zagora.cli._run_remote_capture", return_value=remote_ls),
+            patch(
+                "zagora.cli.registry_ls",
+                return_value=[{"name": "NT", "host": "v100"}, {"name": "\x1b[32;1mNT\x1b[m", "host": "v100"}],
+            ),
             patch("zagora.cli.registry_remove") as rm_mock,
         ):
             rc = cli.cmd_attach(args)
             self.assertEqual(rc, 0)
-            rm_mock.assert_called_once_with("http://s:9876", "NT", token=None)
+            removed_names = [c.args[1] for c in rm_mock.call_args_list]
+            self.assertCountEqual(removed_names, ["NT", "\x1b[32;1mNT\x1b[m"])
+            self.assertTrue(all(c.kwargs.get("host") == "v100" for c in rm_mock.call_args_list))
 
     def test_cmd_attach_reconcile_keeps_when_still_running(self):
         args = argparse.Namespace(
@@ -259,6 +422,28 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 0)
             reg_mock.assert_called_once_with("http://s:9876", "NT", "v100", token=None, status="running")
             rm_mock.assert_not_called()
+
+    def test_cmd_attach_uses_positional_name(self):
+        args = argparse.Namespace(
+            host="http://s:9876",
+            token=None,
+            transport="auto",
+            connect=None,
+            name=None,
+            name_pos="gpucheck",
+            _repl_mode=False,
+        )
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._lookup_session_target", return_value=("v100", "GpuCheck")) as lookup_mock,
+            patch("zagora.cli._exec_remote_interactive", return_value=0) as exec_mock,
+        ):
+            rc = cli.cmd_attach(args)
+            self.assertEqual(rc, 0)
+            lookup_mock.assert_called_once_with("http://s:9876", None, "gpucheck")
+            self.assertEqual(exec_mock.call_args.args[1], "v100")
 
 
 class TestParser(unittest.TestCase):
@@ -298,6 +483,12 @@ class TestParser(unittest.TestCase):
         args = p.parse_args(["a", "-n", "Work"])
         self.assertEqual(args.cmd, "a")
         self.assertEqual(args.name, "Work")
+
+    def test_attach_alias_positional_name(self):
+        p = build_parser()
+        args = p.parse_args(["a", "Work"])
+        self.assertEqual(args.cmd, "a")
+        self.assertEqual(args.name_pos, "Work")
 
     def test_ls(self):
         p = build_parser()

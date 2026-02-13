@@ -229,6 +229,8 @@ zagora ls -c v100
 ```bash
 zagora attach --name Work
 # 自动从 server 查到 "Work" 在 v100 上，然后 SSH attach
+# 等价简写：
+zagora a Work
 ```
 
 也可以显式指定目标机器：
@@ -236,6 +238,8 @@ zagora attach --name Work
 ```bash
 zagora attach --name Work -c v100
 ```
+
+若同名 session 存在于多台机器（例如 `Work@v100` 与 `Work@t14`），`attach` 会提示歧义，此时请加 `-c` 指定目标机器。
 
 ### 7. 杀死 session
 
@@ -300,13 +304,15 @@ zagora open -c <target> --name <session_name>
 ### `zagora attach`
 
 ```bash
-zagora attach --name <session_name> [-c <target>]
+zagora attach [--name <session_name> | <session_name>] [-c <target>]
 ```
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--name` | ✅ | session 名称 |
+| `--name` 或位置参数 `<session_name>` | ✅（二选一） | session 名称 |
 | `-c` / `--connect` | ❌ | 目标机器（不指定则从 server 自动查询） |
+
+说明：同名 session 可存在于不同目标机器；当自动查询出现多匹配时需用 `-c` 消歧。
 
 ### `zagora ls`
 
@@ -340,6 +346,7 @@ zagora sync -c <target>
 | `-c` / `--connect` | ✅ | 目标机器（主动扫描 zellij sessions） |
 
 行为：将目标机器上 `zellij ls` 扫描到的 session 注册为 `running`，并删除该机器在 registry 中已不存在的旧记录。  
+兼容清理：会自动清理旧版本遗留的 ANSI/控制字符别名记录，避免同名重复。  
 安全保护：若检测到 SSH 密码提示/鉴权异常且扫描结果为空，`sync` 会跳过删除，避免误清理。
 
 ### `zagora install-zellij`

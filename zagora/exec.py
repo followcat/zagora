@@ -41,24 +41,26 @@ def _tailscale_ip(host: str) -> str:
         return host
 
 
-def tailscale_ssh(host: str, remote_argv: Sequence[str], *, tty: bool = False) -> list[str]:
-    cmd = ["tailscale", "ssh", "-Y"]
+def tailscale_ssh(
+    host: str, remote_argv: Sequence[str], *, tty: bool = False, x11: bool = False
+) -> list[str]:
+    cmd = ["tailscale", "ssh"]
+    if x11:
+        cmd.append("-Y")
     if tty:
         cmd.append("-t")
     cmd += [host, "--", *remote_argv]
     return cmd
 
 
-def ssh_via_tailscale(host: str, remote_argv: Sequence[str], *, tty: bool = False) -> list[str]:
+def ssh_via_tailscale(
+    host: str, remote_argv: Sequence[str], *, tty: bool = False, x11: bool = False
+) -> list[str]:
     h = _tailscale_ip(host)
-    cmd = [
-        "ssh",
-        "-Y",
-        "-o",
-        "ProxyCommand=tailscale nc %h %p",
-        "-o",
-        "StrictHostKeyChecking=accept-new",
-    ]
+    cmd = ["ssh"]
+    if x11:
+        cmd.append("-Y")
+    cmd += ["-o", "ProxyCommand=tailscale nc %h %p", "-o", "StrictHostKeyChecking=accept-new"]
     if tty:
         cmd.append("-t")
     cmd += [h, "--", *remote_argv]

@@ -10,7 +10,6 @@ from zagora.exec import ZagoraError, exec_interactive, require_cmd, run_capture
 from zagora.exec import ssh_via_tailscale, tailscale_ssh
 from zagora.registry import (
     RegistryError,
-    registry_get,
     registry_history_add,
     registry_history_list,
     registry_ls,
@@ -183,6 +182,17 @@ def _short_ts(ts: object) -> str:
     return s
 
 
+def _strip_ansi_and_control(text: object) -> str:
+    s = str(text or "")
+    s = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", s)
+    s = re.sub(r"[\x00-\x1F\x7F]", "", s)
+    return s
+
+
+def _normalize_session_name(name: object) -> str:
+    return _strip_ansi_and_control(name).strip()
+
+
 def _connect_or_exit(args: argparse.Namespace) -> str:
     c = getattr(args, "connect", None)
     if not c:
@@ -261,7 +271,7 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 
     t = _transport(args)
     if t == "ssh":
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
     if t == "tailscale":
         try:
             pre = subprocess.run(
@@ -272,14 +282,14 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
                 timeout=5,
             )
         except subprocess.TimeoutExpired:
-            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
 
         if pre.returncode == 0:
-            return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
+            return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
         if _tailscale_rejects_y(pre.stderr):
             sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
-            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
-        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
+            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
 
     # auto: quick preflight to detect host-key issues (no password prompt)
     try:
@@ -292,34 +302,28 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
         )
     except subprocess.TimeoutExpired:
         # tailscale ssh hung (probably waiting for something); fall back
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
 
     if pre.returncode == 0:
-        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True))
+        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
     if _tailscale_rejects_y(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
     if _hostkey_problem(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh host key unavailable; falling back to system ssh\n")
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
 
     # other failure (e.g. host unreachable) — still try ssh fallback
-    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True))
+    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
 
 
 def _parse_zellij_ls_names(output: str) -> list[str]:
     """Parse `zellij ls` output into session names."""
 
-    def _clean_terminal_noise(text: str) -> str:
-        # Strip ANSI escapes and other control chars that can appear in TTY output.
-        s = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text or "")
-        s = re.sub(r"[\x00-\x1F\x7F]", "", s)
-        return s
-
     out: list[str] = []
     seen: set[str] = set()
     for raw_line in (output or "").splitlines():
-        s = _clean_terminal_noise(raw_line).strip()
+        s = _normalize_session_name(raw_line)
         if not s:
             continue
         low = s.lower()
@@ -367,6 +371,103 @@ def _looks_like_auth_or_transport_issue(text: str) -> bool:
     return any(m in low for m in markers)
 
 
+def _remove_registry_name_variants(
+    server: str, token: str | None, host: str, name: str
+) -> int:
+    """Remove all registry records whose normalized name matches `name` on host."""
+    canonical = _normalize_session_name(name)
+    if not canonical:
+        return 0
+    removed = 0
+    try:
+        sessions = registry_ls(server, token=token, host=host)
+    except RegistryError as e:
+        sys.stderr.write(f"zagora: warning: failed to list registry variants for '{canonical}': {e}\n")
+        sessions = []
+
+    candidates: list[str] = []
+    for s in sessions:
+        raw = s.get("name")
+        if isinstance(raw, str) and raw and _normalize_session_name(raw) == canonical:
+            candidates.append(raw)
+    if canonical not in candidates:
+        candidates.append(canonical)
+
+    for raw in dict.fromkeys(candidates):
+        try:
+            registry_remove(server, raw, token=token, host=host)
+            removed += 1
+        except RegistryError as e:
+            if getattr(e, "code", None) != 404:
+                sys.stderr.write(f"zagora: warning: failed to remove stale variant '{canonical}': {e}\n")
+    return removed
+
+
+def _lookup_session_target(server: str, token: str | None, name: str) -> tuple[str, str]:
+    query = _normalize_session_name(name)
+    if not query:
+        raise ZagoraError("invalid --name")
+
+    try:
+        sessions = registry_ls(server, token=token)
+    except RegistryError as e:
+        raise ZagoraError(f"cannot find session '{query}': {e}") from None
+
+    entries: list[tuple[str, str]] = []
+    for s in sessions:
+        raw_name = s.get("name")
+        host = s.get("host")
+        norm = _normalize_session_name(raw_name)
+        if norm and isinstance(host, str) and host:
+            entries.append((norm, host))
+
+    def _pick(matches: list[tuple[str, str]]) -> tuple[str, str] | None:
+        if not matches:
+            return None
+        uniq = list(dict.fromkeys(matches))
+        if len(uniq) == 1:
+            return uniq[0]
+        hosts = {h for _, h in uniq}
+        if len(hosts) == 1:
+            return uniq[0]
+        return None
+
+    exact = _pick([(n, h) for n, h in entries if n == query])
+    if exact:
+        return exact[1], exact[0]
+
+    ci = _pick([(n, h) for n, h in entries if n.lower() == query.lower()])
+    if ci:
+        return ci[1], ci[0]
+
+    pref = _pick([(n, h) for n, h in entries if n.lower().startswith(query.lower())])
+    if pref:
+        return pref[1], pref[0]
+
+    ambiguous = list(dict.fromkeys([(n, h) for n, h in entries if n.lower().startswith(query.lower())]))
+    if len(ambiguous) > 1:
+        choices = ", ".join(f"{n}@{h}" for n, h in ambiguous[:5])
+        raise ZagoraError(
+            f"session '{query}' is ambiguous across hosts: {choices}; add -c/--connect and exact --name"
+        )
+    raise ZagoraError(f"cannot find session '{query}': server returned 404: not found")
+
+
+def _lookup_session_host(server: str, token: str | None, name: str) -> str:
+    host, _ = _lookup_session_target(server, token, name)
+    return host
+
+
+def _resolve_name_arg(args: argparse.Namespace) -> str:
+    raw = getattr(args, "name", None)
+    if not raw:
+        raw = getattr(args, "name_pos", None)
+    name = _normalize_session_name(raw)
+    if not name:
+        raise ZagoraError("missing session name; use -n/--name or positional <name>")
+    return name
+
+
 def _reconcile_session_after_interactive(
     args: argparse.Namespace,
     server: str,
@@ -388,7 +489,7 @@ def _reconcile_session_after_interactive(
         if name in remote_set:
             registry_register(server, name, target, token=token, status="running")
         else:
-            registry_remove(server, name, token=token)
+            _remove_registry_name_variants(server, token, target, name)
     except RegistryError as e:
         if getattr(e, "code", None) != 404:
             sys.stderr.write(f"zagora: warning: failed to reconcile session '{name}': {e}\n")
@@ -578,17 +679,20 @@ def cmd_open(args: argparse.Namespace) -> int:
     server = _server_or_exit(args)
     token = _token(args)
     target = _connect_or_exit(args)
-    name = args.name
+    name = _normalize_session_name(args.name)
+    if not name:
+        raise ZagoraError("invalid --name")
 
-    # prevent duplicate names (global uniqueness in registry)
+    # prevent duplicate names on the same target host
     try:
-        registry_get(server, name, token=token)
-        raise ZagoraError(
-            f"session '{name}' already exists in registry; use 'zagora attach -n {name}' or 'zagora kill -n {name}'"
-        )
+        existing = registry_ls(server, token=token, host=target)
     except RegistryError as e:
-        if getattr(e, "code", None) != 404:
-            raise ZagoraError(f"cannot check session name uniqueness: {e}") from None
+        raise ZagoraError(f"cannot check session name uniqueness: {e}") from None
+    for s in existing:
+        if _normalize_session_name(s.get("name")) == name and str(s.get("host", "")) == target:
+            raise ZagoraError(
+                f"session '{name}' already exists on '{target}'; use 'zagora attach -c {target} -n {name}' or 'zagora kill -c {target} -n {name}'"
+            )
 
     # register with server before exec (exec replaces process)
     registry_register(server, name, target, token=token)
@@ -605,18 +709,12 @@ def cmd_attach(args: argparse.Namespace) -> int:
     require_cmd("ssh")
     server = _server_or_exit(args)
     token = _token(args)
-    name = args.name
+    name = _resolve_name_arg(args)
 
     target = getattr(args, "connect", None)
     if not target:
-        # look up from registry
-        try:
-            info = registry_get(server, name, token=token)
-            target = info.get("host")
-        except RegistryError as e:
-            raise ZagoraError(f"cannot find session '{name}': {e}") from None
-        if not target:
-            raise ZagoraError(f"session '{name}' has no host in registry")
+        target, resolved_name = _lookup_session_target(server, token, name)
+        name = resolved_name
 
     remote = _zellij_remote(["attach", name])
     rc = _exec_remote_interactive(args, target, remote)
@@ -640,7 +738,20 @@ def cmd_ls(args: argparse.Namespace) -> int:
         sys.stdout.write("(no sessions)\n")
         return 0
 
+    merged: dict[tuple[str, str], dict] = {}
     for s in sessions:
+        norm_name = _normalize_session_name(s.get("name"))
+        host = str(s.get("host", ""))
+        if not norm_name:
+            continue
+        key = (host, norm_name)
+        row = dict(s)
+        row["name"] = norm_name
+        prev = merged.get(key)
+        if prev is None or str(row.get("last_seen", "")) > str(prev.get("last_seen", "")):
+            merged[key] = row
+
+    for s in sorted(merged.values(), key=lambda x: (str(x.get("host", "")), str(x.get("name", "")))):
         status = s.get("status", "?")
         host = s.get("host", "?")
         name = s.get("name", "?")
@@ -660,17 +771,13 @@ def cmd_kill(args: argparse.Namespace) -> int:
     require_cmd("ssh")
     server = _server_or_exit(args)
     token = _token(args)
-    name = args.name
+    name = _normalize_session_name(args.name)
+    if not name:
+        raise ZagoraError("invalid --name")
 
     target = getattr(args, "connect", None)
     if not target:
-        try:
-            info = registry_get(server, name, token=token)
-            target = info.get("host")
-        except RegistryError as e:
-            raise ZagoraError(f"cannot find session '{name}': {e}") from None
-        if not target:
-            raise ZagoraError(f"session '{name}' has no host in registry")
+        target = _lookup_session_host(server, token, name)
 
     remote = _zellij_remote(["kill-session", name])
     p = _run_remote_capture(args, target, remote)
@@ -678,11 +785,8 @@ def cmd_kill(args: argparse.Namespace) -> int:
         sys.stderr.write(p.stderr)
         return p.returncode
 
-    # remove from registry
-    try:
-        registry_remove(server, name, token=token)
-    except RegistryError as e:
-        sys.stderr.write(f"zagora: warning: failed to remove from registry: {e}\n")
+    # remove from registry (including legacy ANSI/control-char variants)
+    _remove_registry_name_variants(server, token, target, name)
 
     return 0
 
@@ -710,10 +814,15 @@ def cmd_sync(args: argparse.Namespace) -> int:
         return 1
 
     current_names: set[str] = set()
+    current_raw_by_norm: dict[str, list[str]] = {}
     for s in current_sessions:
-        n = s.get("name")
-        if isinstance(n, str) and n:
+        raw = s.get("name")
+        n = _normalize_session_name(raw)
+        if n:
             current_names.add(n)
+            current_raw_by_norm.setdefault(n, [])
+            if isinstance(raw, str):
+                current_raw_by_norm[n].append(raw)
 
     if not remote_names and current_names and auth_or_transport_issue:
         sys.stderr.write(
@@ -726,7 +835,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
     removed = 0
     failed = 0
 
-    for name in remote_names:
+    remote_norm_names = [_normalize_session_name(n) for n in remote_names]
+    remote_norm_names = [n for n in remote_norm_names if n]
+    remote_norm_names = list(dict.fromkeys(remote_norm_names))
+    for name in remote_norm_names:
         try:
             registry_register(server, name, target, token=token, status="running")
             if name in current_names:
@@ -737,20 +849,41 @@ def cmd_sync(args: argparse.Namespace) -> int:
             failed += 1
             sys.stderr.write(f"zagora: warning: failed to register '{name}': {e}\n")
 
-    remote_set = set(remote_names)
-    stale = sorted(current_names - remote_set)
-    for name in stale:
-        try:
-            registry_remove(server, name, token=token)
-            removed += 1
-        except RegistryError as e:
-            if getattr(e, "code", None) == 404:
-                # Already removed/raced by another client, treat as benign.
+    remote_set = set(remote_norm_names)
+    # Cleanup legacy aliases (e.g. ANSI-colored names) even when canonical session is still running.
+    for norm_name in sorted(current_names & remote_set):
+        for raw_name in dict.fromkeys(current_raw_by_norm.get(norm_name, [])):
+            if raw_name == norm_name:
                 continue
-            failed += 1
-            sys.stderr.write(f"zagora: warning: failed to remove stale '{name}': {e}\n")
+            try:
+                registry_remove(server, raw_name, token=token, host=target)
+                removed += 1
+            except RegistryError as e:
+                if getattr(e, "code", None) == 404:
+                    continue
+                failed += 1
+                sys.stderr.write(f"zagora: warning: failed to remove stale '{norm_name}': {e}\n")
 
-    discovered = len(remote_names)
+    stale_norm = sorted(current_names - remote_set)
+    for norm_name in stale_norm:
+        raw_names = current_raw_by_norm.get(norm_name, [norm_name]) or [norm_name]
+        removed_any = False
+        for raw_name in raw_names:
+            try:
+                registry_remove(server, raw_name, token=token, host=target)
+                removed += 1
+                removed_any = True
+            except RegistryError as e:
+                if getattr(e, "code", None) == 404:
+                    # Already removed/raced by another client, treat as benign.
+                    continue
+                failed += 1
+                sys.stderr.write(f"zagora: warning: failed to remove stale '{norm_name}': {e}\n")
+        # If all deletions returned 404 we still consider it reconciled.
+        if not removed_any:
+            continue
+
+    discovered = len(remote_norm_names)
     sys.stdout.write(
         f"synced {target}: discovered {discovered}, added {added}, updated {updated}, removed {removed}\n"
     )
@@ -810,7 +943,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
                 sys.stdout.write(f"  - {name}\t{host}\tunreachable -> remove\n")
                 if not dry_run:
                     try:
-                        registry_remove(server, name, token=token)
+                        registry_remove(server, name, token=token, host=host)
                         removed += 1
                     except RegistryError:
                         pass
@@ -859,7 +992,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             sys.stdout.write(f"  - {name}\t{host}\tmissing -> remove\n")
             if not dry_run:
                 try:
-                    registry_remove(server, name, token=token)
+                    registry_remove(server, name, token=token, host=host)
                     removed += 1
                 except RegistryError:
                     pass
@@ -1136,7 +1269,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_common(p_attach)
     p_attach.add_argument("-c", "--connect", help="target machine (optional; auto-discovered from registry)")
-    p_attach.add_argument("-n", "--name", required=True, help="session name")
+    p_attach.add_argument("-n", "--name", help="session name")
+    p_attach.add_argument("name_pos", nargs="?", help="session name (shorthand)")
     p_attach.set_defaults(func=cmd_attach)
 
     # ls
