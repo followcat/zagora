@@ -40,6 +40,13 @@ class TestCommands(unittest.TestCase):
         self.assertIn("ControlPersist=120", argv)
         self.assertIn("ControlPath=~/.ssh/zagora-%C", argv)
 
+    def test_ssh_via_tailscale_argv_without_connection_cache(self):
+        argv = ssh_via_tailscale("C", ["zellij", "list-sessions"], control_persist="off")
+        self.assertEqual(argv[0], "ssh")
+        self.assertNotIn("ControlMaster=auto", argv)
+        self.assertNotIn("ControlPersist=120", argv)
+        self.assertNotIn("ControlPath=~/.ssh/zagora-%C", argv)
+
     def test_exec_remote_interactive_uses_subprocess_in_repl(self):
         args = argparse.Namespace(transport="auto", _repl_mode=True)
         runs = [
@@ -571,8 +578,18 @@ class TestParser(unittest.TestCase):
         args = p.parse_args(["--host", "http://C:9876", "ls"])
         self.assertEqual(args.host, "http://C:9876")
 
+    def test_global_ssh_control_persist_before_subcommand(self):
+        p = build_parser()
+        args = p.parse_args(["--ssh-control-persist", "10m", "ls"])
+        self.assertEqual(args.ssh_control_persist, "10m")
+
     def test_install_zellij(self):
         p = build_parser()
         args = p.parse_args(["install-zellij", "-c", "v100"])
         self.assertEqual(args.cmd, "install-zellij")
         self.assertEqual(args.connect, "v100")
+
+    def test_install_zellij_with_ssh_control_persist(self):
+        p = build_parser()
+        args = p.parse_args(["install-zellij", "-c", "v100", "--ssh-control-persist", "15m"])
+        self.assertEqual(args.ssh_control_persist, "15m")

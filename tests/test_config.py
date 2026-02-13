@@ -2,8 +2,8 @@ import os
 import unittest
 from unittest import mock
 
-from zagora.config import CONFIG_ENV_HOST, CONFIG_ENV_TOKEN
-from zagora.config import resolve_server, resolve_token
+from zagora.config import CONFIG_ENV_HOST, CONFIG_ENV_SSH_CONTROL_PERSIST, CONFIG_ENV_TOKEN
+from zagora.config import resolve_server, resolve_ssh_control_persist, resolve_token
 
 
 class TestResolveServer(unittest.TestCase):
@@ -43,3 +43,25 @@ class TestResolveToken(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             with mock.patch("zagora.config.load_config", return_value={"token": "cfg-tok"}):
                 self.assertEqual(resolve_token(None), "cfg-tok")
+
+
+class TestResolveSshControlPersist(unittest.TestCase):
+    def test_cli_wins(self):
+        with mock.patch.dict(os.environ, {CONFIG_ENV_SSH_CONTROL_PERSIST: "300"}, clear=True):
+            with mock.patch("zagora.config.load_config", return_value={"ssh_control_persist": "900"}):
+                self.assertEqual(resolve_ssh_control_persist("60"), "60")
+
+    def test_env_used(self):
+        with mock.patch.dict(os.environ, {CONFIG_ENV_SSH_CONTROL_PERSIST: "300"}, clear=True):
+            with mock.patch("zagora.config.load_config", return_value={}):
+                self.assertEqual(resolve_ssh_control_persist(None), "300")
+
+    def test_config_used(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("zagora.config.load_config", return_value={"ssh_control_persist": 900}):
+                self.assertEqual(resolve_ssh_control_persist(None), "900")
+
+    def test_default_used(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("zagora.config.load_config", return_value={}):
+                self.assertEqual(resolve_ssh_control_persist(None), "120")

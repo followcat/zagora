@@ -8,6 +8,7 @@ from typing import Any
 
 CONFIG_ENV_HOST = "ZAGORA_HOST"
 CONFIG_ENV_TOKEN = "ZAGORA_TOKEN"
+CONFIG_ENV_SSH_CONTROL_PERSIST = "ZAGORA_SSH_CONTROL_PERSIST"
 
 
 def _xdg_config_home() -> Path:
@@ -60,3 +61,22 @@ def resolve_token(cli_token: str | None = None) -> str | None:
         return token.strip()
 
     return None
+
+
+def resolve_ssh_control_persist(cli_value: str | None = None) -> str:
+    """Resolve SSH ControlPersist duration. Priority: CLI > env > config > default."""
+    if isinstance(cli_value, str) and cli_value.strip():
+        return cli_value.strip()
+
+    env = os.environ.get(CONFIG_ENV_SSH_CONTROL_PERSIST)
+    if isinstance(env, str) and env.strip():
+        return env.strip()
+
+    cfg = load_config()
+    value = cfg.get("ssh_control_persist")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(int(value))
+
+    return "120"

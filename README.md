@@ -177,6 +177,7 @@ zagora --host http://v100:9876 ls
 ```bash
 export ZAGORA_HOST=http://v100:9876
 export ZAGORA_TOKEN=my-secret    # 如果 server 开了 token
+export ZAGORA_SSH_CONTROL_PERSIST=15m   # 可选：密码缓存窗口（off 可关闭）
 ```
 
 **方式 C：配置文件** `~/.config/zagora/config.json`
@@ -184,7 +185,8 @@ export ZAGORA_TOKEN=my-secret    # 如果 server 开了 token
 ```json
 {
   "server": "http://v100:9876",
-  "token": "my-secret"
+  "token": "my-secret",
+  "ssh_control_persist": "15m"
 }
 ```
 
@@ -263,7 +265,7 @@ zagora doctor
 ## 完整命令参考
 
 ```
-zagora [--host HOST] [--token TOKEN] [--transport {auto,tailscale,ssh}] <command>
+zagora [--host HOST] [--token TOKEN] [--transport {auto,tailscale,ssh}] [--ssh-control-persist DUR] <command>
 
 命令:
   serve                启动 zagora registry server
@@ -395,6 +397,8 @@ zagora 通过 Tailscale 网络连接目标机器，支持两种 SSH 传输模式
 | `ssh` | `--transport ssh` | 使用系统 `ssh` + `ProxyCommand=tailscale nc %h %p` |
 
 `auto` 模式处理逻辑：先尝试 `tailscale ssh`（利用 tailnet 身份认证，无需密码/密钥），如果遇到 host key 验证失败则自动回退到系统 `ssh`（设置 `StrictHostKeyChecking=accept-new`）。
+
+系统 `ssh` 路径默认启用连接复用（`ControlPersist=120`），可通过 `--ssh-control-persist` / `ZAGORA_SSH_CONTROL_PERSIST` / `config.json` 的 `ssh_control_persist` 调整，如 `15m`、`1h`；设为 `off` 可关闭。
 
 
 ## License

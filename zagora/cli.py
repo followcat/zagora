@@ -5,7 +5,7 @@ import re
 import shlex
 import sys
 
-from zagora.config import resolve_server, resolve_token
+from zagora.config import resolve_server, resolve_ssh_control_persist, resolve_token
 from zagora.exec import ZagoraError, exec_interactive, require_cmd, run_capture
 from zagora.exec import ssh_via_tailscale, tailscale_ssh
 from zagora.registry import (
@@ -173,6 +173,10 @@ def _token(args: argparse.Namespace) -> str | None:
     return resolve_token(getattr(args, "token", None))
 
 
+def _ssh_control_persist(args: argparse.Namespace) -> str:
+    return resolve_ssh_control_persist(getattr(args, "ssh_control_persist", None))
+
+
 def _short_ts(ts: object) -> str:
     if not isinstance(ts, str) or not ts:
         return "-"
@@ -234,17 +238,18 @@ def _transport(args: argparse.Namespace) -> str:
 
 def _run_remote_capture(args: argparse.Namespace, host: str, remote_argv: list[str]):
     t = _transport(args)
+    cp = _ssh_control_persist(args)
     if t == "ssh":
-        return run_capture(ssh_via_tailscale(host, remote_argv))
+        return run_capture(ssh_via_tailscale(host, remote_argv, control_persist=cp))
     if t == "tailscale":
         p = run_capture(tailscale_ssh(host, remote_argv))
         if p.returncode != 0 and _tailscale_rejects_y(p.stderr):
-            return run_capture(ssh_via_tailscale(host, remote_argv))
+            return run_capture(ssh_via_tailscale(host, remote_argv, control_persist=cp))
         return p
 
     p = run_capture(tailscale_ssh(host, remote_argv))
     if p.returncode != 0 and (_hostkey_problem(p.stderr) or _tailscale_rejects_y(p.stderr)):
-        return run_capture(ssh_via_tailscale(host, remote_argv))
+        return run_capture(ssh_via_tailscale(host, remote_argv, control_persist=cp))
     return p
 
 
@@ -253,6 +258,7 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
     import signal
 
     repl_mode = bool(getattr(args, "_repl_mode", False))
+    cp = _ssh_control_persist(args)
 
     def _run_or_exec(argv: list[str]) -> int:
         if repl_mode:
@@ -271,7 +277,7 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
 
     t = _transport(args)
     if t == "ssh":
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
     if t == "tailscale":
         try:
             pre = subprocess.run(
@@ -282,13 +288,13 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
                 timeout=5,
             )
         except subprocess.TimeoutExpired:
-            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
 
         if pre.returncode == 0:
             return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
         if _tailscale_rejects_y(pre.stderr):
             sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
-            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
         return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
 
     # auto: quick preflight to detect host-key issues (no password prompt)
@@ -302,19 +308,19 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
         )
     except subprocess.TimeoutExpired:
         # tailscale ssh hung (probably waiting for something); fall back
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
 
     if pre.returncode == 0:
         return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
     if _tailscale_rejects_y(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
     if _hostkey_problem(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh host key unavailable; falling back to system ssh\n")
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
 
     # other failure (e.g. host unreachable) — still try ssh fallback
-    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True))
+    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
 
 
 def _parse_zellij_ls_names(output: str) -> list[str]:
@@ -567,7 +573,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
     shell = args.shell
 
     subs = "serve open attach a ls kill sync refresh update doctor install-zellij interactive i completion".split()
-    global_opts = "--host --token --transport".split()
+    global_opts = "--host --token --transport --ssh-control-persist".split()
 
     # Per-subcommand options (short + long)
     opts: dict[str, list[str]] = {
@@ -590,7 +596,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
         ],
         "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
         "doctor": [*global_opts],
-        "install-zellij": ["-c", "--connect", "--dir", "--transport"],
+        "install-zellij": ["-c", "--connect", "--dir", "--transport", "--ssh-control-persist"],
         "interactive": [*global_opts],
         "i": [*global_opts],
         "completion": ["--shell"],
@@ -1220,6 +1226,11 @@ def _add_common(sub: argparse.ArgumentParser) -> None:
         default=argparse.SUPPRESS,
         help="SSH transport: auto (default), tailscale, ssh",
     )
+    sub.add_argument(
+        "--ssh-control-persist",
+        default=argparse.SUPPRESS,
+        help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1234,6 +1245,10 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "tailscale", "ssh"],
         default="auto",
         help="SSH transport: auto (default), tailscale, ssh",
+    )
+    p.add_argument(
+        "--ssh-control-persist",
+        help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
     )
 
     sp = p.add_subparsers(dest="cmd")
@@ -1368,6 +1383,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="SSH transport",
     )
+    p_inst.add_argument(
+        "--ssh-control-persist",
+        default=argparse.SUPPRESS,
+        help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
+    )
     p_inst.add_argument("--dir", default="~/.local/bin", help="install dir (default: ~/.local/bin)")
     p_inst.set_defaults(func=cmd_install_zellij)
 
@@ -1382,6 +1402,8 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         base += ["--token", str(args.token)]
     if getattr(args, "transport", None):
         base += ["--transport", str(args.transport)]
+    if getattr(args, "ssh_control_persist", None):
+        base += ["--ssh-control-persist", str(args.ssh_control_persist)]
 
     parser = build_parser()
 
@@ -1437,7 +1459,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             ],
             "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
             "doctor": [],
-            "install-zellij": ["-c", "--connect", "--transport", "--dir"],
+            "install-zellij": ["-c", "--connect", "--transport", "--ssh-control-persist", "--dir"],
         }
 
         def _repl_complete(text: str, state: int):

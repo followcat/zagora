@@ -54,24 +54,21 @@ def tailscale_ssh(
 
 
 def ssh_via_tailscale(
-    host: str, remote_argv: Sequence[str], *, tty: bool = False, x11: bool = False
+    host: str,
+    remote_argv: Sequence[str],
+    *,
+    tty: bool = False,
+    x11: bool = False,
+    control_persist: str | None = "120",
 ) -> list[str]:
     h = _tailscale_ip(host)
     cmd = ["ssh"]
     if x11:
         cmd.append("-Y")
-    cmd += [
-        "-o",
-        "ProxyCommand=tailscale nc %h %p",
-        "-o",
-        "StrictHostKeyChecking=accept-new",
-        "-o",
-        "ControlMaster=auto",
-        "-o",
-        "ControlPersist=120",
-        "-o",
-        "ControlPath=~/.ssh/zagora-%C",
-    ]
+    cmd += ["-o", "ProxyCommand=tailscale nc %h %p", "-o", "StrictHostKeyChecking=accept-new"]
+    cp = str(control_persist or "").strip()
+    if cp and cp.lower() not in {"0", "off", "no", "false"}:
+        cmd += ["-o", "ControlMaster=auto", "-o", f"ControlPersist={cp}", "-o", "ControlPath=~/.ssh/zagora-%C"]
     if tty:
         cmd.append("-t")
     cmd += [h, "--", *remote_argv]
