@@ -229,6 +229,8 @@ class TestCommands(unittest.TestCase):
         self.assertIn("default_mode \"locked\"", argv[2])
         self.assertIn("normal {", argv[2])
         self.assertIn("Quit;", argv[2])
+        self.assertIn("already exists, but is dead", argv[2])
+        self.assertIn("delete-session", argv[2])
 
     def test_zellij_remote_uses_safe_ctrl_q_config(self):
         argv = cli._zellij_remote(["ls"])
@@ -266,6 +268,21 @@ class TestCommands(unittest.TestCase):
         ):
             rc = cli.cmd_open(args)
             self.assertEqual(rc, 0)
+
+    def test_cmd_open_removes_registry_entry_when_open_fails(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli.registry_ls", return_value=[]),
+            patch("zagora.cli.registry_register"),
+            patch("zagora.cli._exec_remote_interactive", return_value=1),
+            patch("zagora.cli._remove_registry_name_variants") as rm_mock,
+        ):
+            rc = cli.cmd_open(args)
+            self.assertEqual(rc, 1)
+            rm_mock.assert_called_once_with("http://s:9876", None, "v100", "NT")
 
     def test_lookup_session_host_falls_back_to_legacy_normalized_name(self):
         with (

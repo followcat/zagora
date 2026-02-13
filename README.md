@@ -212,6 +212,8 @@ zagora open -c v100 --name Work
 # 4. 进入交互式终端
 ```
 
+若目标机存在同名 dead/exited session，zagora 会先尝试清理该 dead 记录再重试 open。
+
 ### 5. 查看所有 session
 
 从任意客户端查询 server：

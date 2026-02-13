@@ -243,9 +243,19 @@ def _zellij_open_remote(name: str) -> list[str]:
         'elif [ -x "$HOME/.local/bin/zellij" ]; then _zg_bin="$HOME/.local/bin/zellij"; '
         'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi; '
         + _zellij_safe_config_bootstrap()
-        + f'if "$_zg_bin" --help 2>/dev/null | grep -q -- "--session"; then '
-        + f'exec "$_zg_bin" --config "$_zg_cfg" --session {qname}; '
-        + f'else exec "$_zg_bin" --config "$_zg_cfg" attach --create {qname}; fi'
+        + f'_zg_open_once() {{ if "$_zg_bin" --help 2>/dev/null | grep -q -- "--session"; then "$_zg_bin" --config "$_zg_cfg" --session {qname}; '
+        + f'else "$_zg_bin" --config "$_zg_cfg" attach --create {qname}; fi; }}; '
+        + '_zg_err="$(mktemp)"; '
+        + '_zg_open_once 2>"$_zg_err"; _zg_rc=$?; '
+        + 'if [ "$_zg_rc" -ne 0 ] && grep -qi "already exists, but is dead" "$_zg_err"; then '
+        + f'"$_zg_bin" --config "$_zg_cfg" delete-session {qname} >/dev/null 2>&1 || true; '
+        + 'rm -f "$_zg_err"; '
+        + '_zg_open_once; '
+        + 'exit $?; '
+        + 'fi; '
+        + 'if [ "$_zg_rc" -ne 0 ]; then cat "$_zg_err" >&2; fi; '
+        + 'rm -f "$_zg_err"; '
+        + 'exit "$_zg_rc"'
     )
     return ["sh", "-lc", shlex.quote(script)]
 
@@ -806,8 +816,12 @@ def cmd_open(args: argparse.Namespace) -> int:
 
     remote = _zellij_open_remote(name)
     rc = _exec_remote_interactive(args, target, remote)
-    if isinstance(rc, int) and rc == 0:
-        _reconcile_session_after_interactive(args, server, token, target, name)
+    if isinstance(rc, int):
+        if rc == 0:
+            _reconcile_session_after_interactive(args, server, token, target, name)
+        else:
+            # If open failed in REPL mode, avoid leaving stale registry entry.
+            _remove_registry_name_variants(server, token, target, name)
     return rc
 
 
