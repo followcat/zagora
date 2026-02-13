@@ -57,8 +57,12 @@ def registry_ls(server: str, token: str | None = None, host: str | None = None) 
     return _request(url, token=token)
 
 
-def registry_get(server: str, name: str, token: str | None = None) -> dict[str, Any]:
+def registry_get(
+    server: str, name: str, token: str | None = None, host: str | None = None
+) -> dict[str, Any]:
     url = f"{_base(server)}/sessions/{urllib.parse.quote(name, safe='')}"
+    if host:
+        url += "?" + urllib.parse.urlencode({"host": host})
     return _request(url, token=token)
 
 
@@ -73,8 +77,12 @@ def registry_register(
     return _request(url, method="POST", body={"name": name, "host": host, "status": status}, token=token)
 
 
-def registry_remove(server: str, name: str, token: str | None = None) -> dict[str, Any]:
+def registry_remove(
+    server: str, name: str, token: str | None = None, host: str | None = None
+) -> dict[str, Any]:
     url = f"{_base(server)}/sessions/{urllib.parse.quote(name, safe='')}"
+    if host:
+        url += "?" + urllib.parse.urlencode({"host": host})
     return _request(url, method="DELETE", token=token)
 
 

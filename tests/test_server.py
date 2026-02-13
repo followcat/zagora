@@ -69,6 +69,16 @@ class TestSessionStore(unittest.TestCase):
             self.assertTrue(info["host_reachable"])
             self.assertIsNotNone(info["health_checked_at"])
 
+    def test_same_name_across_hosts(self):
+        with TemporaryDirectory() as d:
+            store = SessionStore(Path(d) / "sessions.json")
+            store.register("Work", "v100")
+            store.register("Work", "t14")
+            self.assertEqual(len(store.list()), 2)
+            self.assertIsNotNone(store.get("Work", host="v100"))
+            self.assertIsNotNone(store.get("Work", host="t14"))
+            self.assertIsNone(store.get("Work"))
+
 
 class TestHealthChecker(unittest.TestCase):
     def test_run_once_updates_host_reachability(self):
@@ -137,6 +147,26 @@ class TestServerAndRegistry(unittest.TestCase):
         registry_remove(self.url, bad_name)
         with self.assertRaises(RegistryError):
             registry_get(self.url, bad_name)
+
+    def test_duplicate_name_across_hosts_requires_host_for_get(self):
+        registry_register(self.url, "Work", "v100")
+        registry_register(self.url, "Work", "t14")
+        with self.assertRaises(RegistryError) as ctx:
+            registry_get(self.url, "Work")
+        self.assertEqual(getattr(ctx.exception, "code", None), 409)
+        info = registry_get(self.url, "Work", host="v100")
+        self.assertEqual(info["host"], "v100")
+
+    def test_duplicate_name_across_hosts_requires_host_for_remove(self):
+        registry_register(self.url, "Work", "v100")
+        registry_register(self.url, "Work", "t14")
+        with self.assertRaises(RegistryError) as ctx:
+            registry_remove(self.url, "Work")
+        self.assertEqual(getattr(ctx.exception, "code", None), 409)
+        registry_remove(self.url, "Work", host="v100")
+        left = registry_ls(self.url)
+        self.assertEqual(len(left), 1)
+        self.assertEqual(left[0]["host"], "t14")
 
 
 class TestServerAuth(unittest.TestCase):

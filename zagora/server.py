@@ -25,6 +25,10 @@ def _history_path() -> Path:
     return _data_dir() / "history.json"
 
 
+def _session_key(name: str, host: str) -> str:
+    return f"{host}\x1f{name}"
+
+
 def _split_host_port(target: str, default_port: int = 22) -> tuple[str, int]:
     s = (target or "").strip()
     if "@" in s:
@@ -69,7 +73,20 @@ class SessionStore:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                self._sessions = data
+                migrated: dict[str, dict[str, Any]] = {}
+                for k, v in data.items():
+                    if not isinstance(v, dict):
+                        continue
+                    raw_name = v.get("name")
+                    raw_host = v.get("host")
+                    name = raw_name if isinstance(raw_name, str) and raw_name else (k if isinstance(k, str) else "")
+                    host = raw_host if isinstance(raw_host, str) and raw_host else ""
+                    if not name or not host:
+                        continue
+                    v["name"] = name
+                    v["host"] = host
+                    migrated[_session_key(name, host)] = v
+                self._sessions = migrated
         except (FileNotFoundError, json.JSONDecodeError):
             self._sessions = {}
 
@@ -88,26 +105,31 @@ class SessionStore:
             out = [s for s in out if s.get("host") == host]
         return out
 
-    def get(self, name: str) -> dict[str, Any] | None:
+    def find(self, name: str, host: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
-            return self._sessions.get(name)
+            if host:
+                s = self._sessions.get(_session_key(name, host))
+                return [dict(s)] if s else []
+            return [dict(s) for s in self._sessions.values() if s.get("name") == name]
+
+    def get(self, name: str, host: str | None = None) -> dict[str, Any] | None:
+        matches = self.find(name, host=host)
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     def register(self, name: str, host: str, status: str = "running") -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
+        key = _session_key(name, host)
         with self._lock:
-            existing = self._sessions.get(name)
+            existing = self._sessions.get(key)
             if existing:
-                prev_host = existing.get("host")
-                existing["host"] = host
                 existing["status"] = status
                 existing["last_seen"] = now
                 existing.setdefault("host_reachable", None)
                 existing.setdefault("health_checked_at", None)
-                if prev_host != host:
-                    existing["host_reachable"] = None
-                    existing["health_checked_at"] = None
             else:
-                self._sessions[name] = {
+                self._sessions[key] = {
                     "name": name,
                     "host": host,
                     "status": status,
@@ -117,20 +139,35 @@ class SessionStore:
                     "health_checked_at": None,
                 }
             self._save()
-            return dict(self._sessions[name])
+            return dict(self._sessions[key])
 
-    def remove(self, name: str) -> bool:
+    def remove(self, name: str, host: str | None = None) -> bool:
         with self._lock:
-            if name in self._sessions:
-                del self._sessions[name]
+            if host:
+                key = _session_key(name, host)
+                if key in self._sessions:
+                    del self._sessions[key]
+                    self._save()
+                    return True
+                return False
+
+            keys = [k for k, s in self._sessions.items() if s.get("name") == name]
+            if len(keys) == 1:
+                del self._sessions[keys[0]]
                 self._save()
                 return True
             return False
 
-    def set_host_reachable(self, name: str, reachable: bool) -> bool:
+    def set_host_reachable(self, name: str, reachable: bool, host: str | None = None) -> bool:
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
-            s = self._sessions.get(name)
+            if host:
+                s = self._sessions.get(_session_key(name, host))
+            else:
+                matches = [v for v in self._sessions.values() if v.get("name") == name]
+                if len(matches) != 1:
+                    return False
+                s = matches[0]
             if not s:
                 return False
             new_value = bool(reachable)
@@ -227,7 +264,7 @@ class HealthChecker:
                     host_cache[host] = bool(self._probe_fn(host, self._timeout))
                 except Exception:
                     host_cache[host] = False
-            self._store.set_host_reachable(name, host_cache[host])
+            self._store.set_host_reachable(name, host_cache[host], host=host)
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -286,9 +323,26 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
 
             if u.path.startswith("/sessions/"):
                 name = unquote(u.path.split("/sessions/", 1)[1])
-                s = store.get(name)
-                if s:
-                    self._json_response(200, s)
+                q = parse_qs(u.query)
+                host = q.get("host", [None])[0]
+                if host:
+                    s = store.get(name, host=host)
+                    if s:
+                        self._json_response(200, s)
+                    else:
+                        self._json_response(404, {"error": "not found"})
+                    return
+                matches = store.find(name)
+                if len(matches) == 1:
+                    self._json_response(200, matches[0])
+                elif len(matches) > 1:
+                    self._json_response(
+                        409,
+                        {
+                            "error": "ambiguous session name; specify host",
+                            "matches": [{"name": x.get("name"), "host": x.get("host")} for x in matches],
+                        },
+                    )
                 else:
                     self._json_response(404, {"error": "not found"})
                 return
@@ -346,7 +400,25 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
             u = urlparse(self.path)
             if u.path.startswith("/sessions/"):
                 name = unquote(u.path.split("/sessions/", 1)[1])
-                if store.remove(name):
+                q = parse_qs(u.query)
+                host = q.get("host", [None])[0]
+                if host:
+                    if store.remove(name, host=host):
+                        self._json_response(200, {"deleted": name, "host": host})
+                    else:
+                        self._json_response(404, {"error": "not found"})
+                    return
+
+                matches = store.find(name)
+                if len(matches) > 1:
+                    self._json_response(
+                        409,
+                        {
+                            "error": "ambiguous session name; specify host",
+                            "matches": [{"name": x.get("name"), "host": x.get("host")} for x in matches],
+                        },
+                    )
+                elif store.remove(name):
                     self._json_response(200, {"deleted": name})
                 else:
                     self._json_response(404, {"error": "not found"})
