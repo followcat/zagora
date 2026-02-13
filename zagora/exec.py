@@ -60,7 +60,18 @@ def ssh_via_tailscale(
     cmd = ["ssh"]
     if x11:
         cmd.append("-Y")
-    cmd += ["-o", "ProxyCommand=tailscale nc %h %p", "-o", "StrictHostKeyChecking=accept-new"]
+    cmd += [
+        "-o",
+        "ProxyCommand=tailscale nc %h %p",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=120",
+        "-o",
+        "ControlPath=~/.ssh/zagora-%C",
+    ]
     if tty:
         cmd.append("-t")
     cmd += [h, "--", *remote_argv]

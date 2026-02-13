@@ -352,6 +352,17 @@ def _parse_zellij_ls_names(output: str) -> list[str]:
     return out
 
 
+def _is_definitive_zellij_ls_output(stdout: str, parsed_names: set[str]) -> bool:
+    if parsed_names:
+        return True
+    low = (stdout or "").lower()
+    return (
+        "no active zellij session" in low
+        or "no zellij sessions" in low
+        or "no active sessions" in low
+    )
+
+
 def _looks_like_auth_or_transport_issue(text: str) -> bool:
     low = (text or "").lower()
     markers = [
@@ -481,10 +492,12 @@ def _reconcile_session_after_interactive(
 
     p = _run_remote_capture(args, target, _zellij_remote(["ls"]))
     io_text = f"{p.stdout or ''}\n{p.stderr or ''}"
-    if p.returncode != 0 or _looks_like_auth_or_transport_issue(io_text):
+    if p.returncode != 0:
         return
 
     remote_set = set(_parse_zellij_ls_names(p.stdout or ""))
+    if _looks_like_auth_or_transport_issue(io_text) and not _is_definitive_zellij_ls_output(p.stdout or "", remote_set):
+        return
     try:
         if name in remote_set:
             registry_register(server, name, target, token=token, status="running")
