@@ -207,14 +207,27 @@ def _connect_or_exit(args: argparse.Namespace) -> str:
 _HOSTKEY_ERR = "No ED25519 host key is known for"
 
 
+def _zellij_safe_config_bootstrap() -> str:
+    return (
+        '_zg_cfg_dir="$HOME/.local/share/zagora/zellij"; '
+        '_zg_cfg="$_zg_cfg_dir/config-unbind-ctrl-q.kdl"; '
+        '_zg_src="${ZELLIJ_CONFIG_FILE:-$HOME/.config/zellij/config.kdl}"; '
+        'mkdir -p "$_zg_cfg_dir"; '
+        'if [ ! -f "$_zg_cfg" ] || { [ -f "$_zg_src" ] && [ "$_zg_src" -nt "$_zg_cfg" ]; }; then '
+        '{ if [ -f "$_zg_src" ]; then cat "$_zg_src"; printf "\\n"; fi; '
+        'printf \'keybinds { unbind "Ctrl q" }\\n\'; } > "$_zg_cfg"; '
+        "fi; "
+    )
+
+
 def _zellij_remote(argv: list[str]) -> list[str]:
     joined = " ".join(shlex.quote(a) for a in argv)
     script = (
-        "if command -v zellij >/dev/null 2>&1; then "
-        f"exec zellij {joined}; "
-        'elif [ -x "$HOME/.local/bin/zellij" ]; then '
-        f'exec "$HOME/.local/bin/zellij" {joined}; '
-        'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi'
+        'if command -v zellij >/dev/null 2>&1; then _zg_bin="zellij"; '
+        'elif [ -x "$HOME/.local/bin/zellij" ]; then _zg_bin="$HOME/.local/bin/zellij"; '
+        'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi; '
+        + _zellij_safe_config_bootstrap()
+        + f'exec "$_zg_bin" --config "$_zg_cfg" {joined}'
     )
     # SSH concatenates remote_argv with spaces and feeds it to the remote
     # shell.  We must pass the script as a single shell-quoted token so
@@ -226,14 +239,13 @@ def _zellij_remote(argv: list[str]) -> list[str]:
 def _zellij_open_remote(name: str) -> list[str]:
     qname = shlex.quote(name)
     script = (
-        "if command -v zellij >/dev/null 2>&1; then "
-        f'if zellij --help 2>/dev/null | grep -q -- "--session"; then exec zellij --session {qname}; '
-        f"else exec zellij attach --create {qname}; fi; "
-        'elif [ -x "$HOME/.local/bin/zellij" ]; then '
-        'if "$HOME/.local/bin/zellij" --help 2>/dev/null | grep -q -- "--session"; then '
-        f'exec "$HOME/.local/bin/zellij" --session {qname}; '
-        f'else exec "$HOME/.local/bin/zellij" attach --create {qname}; fi; '
-        'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi'
+        'if command -v zellij >/dev/null 2>&1; then _zg_bin="zellij"; '
+        'elif [ -x "$HOME/.local/bin/zellij" ]; then _zg_bin="$HOME/.local/bin/zellij"; '
+        'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi; '
+        + _zellij_safe_config_bootstrap()
+        + f'if "$_zg_bin" --help 2>/dev/null | grep -q -- "--session"; then '
+        + f'exec "$_zg_bin" --config "$_zg_cfg" --session {qname}; '
+        + f'else exec "$_zg_bin" --config "$_zg_cfg" attach --create {qname}; fi'
     )
     return ["sh", "-lc", shlex.quote(script)]
 
