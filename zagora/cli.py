@@ -522,6 +522,28 @@ def _rewrite_repl_shorthand(argv: list[str]) -> list[str]:
     if not argv:
         return argv
 
+    # connect-first form: -c <host> <cmd> ...
+    # eg: -c v100 sync
+    if (
+        len(argv) >= 3
+        and argv[0] in {"-c", "--connect"}
+        and not argv[1].startswith("-")
+        and not argv[2].startswith("-")
+    ):
+        host = argv[1]
+        cmd2 = argv[2]
+        tail = argv[3:]
+        if cmd2 in {"open", "attach", "a", "kill", "ls", "refresh", "sync", "install-zellij"}:
+            out = [cmd2, "-c", host, *tail]
+            if (
+                cmd2 in {"open", "attach", "a", "kill"}
+                and not any(x in tail for x in ("-n", "--name"))
+                and len(tail) == 1
+                and not tail[0].startswith("-")
+            ):
+                out = [cmd2, "-c", host, "-n", tail[0]]
+            return out
+
     cmd = argv[0]
     rest = argv[1:]
 

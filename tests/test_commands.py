@@ -181,6 +181,16 @@ class TestCommands(unittest.TestCase):
             ["sync", "-c", "v100"],
         )
 
+    def test_repl_shorthand_connect_first_form(self):
+        self.assertEqual(
+            cli._rewrite_repl_shorthand(["-c", "v100", "sync"]),
+            ["sync", "-c", "v100"],
+        )
+        self.assertEqual(
+            cli._rewrite_repl_shorthand(["--connect", "v100", "kill", "NT"]),
+            ["kill", "-c", "v100", "-n", "NT"],
+        )
+
     def test_parse_zellij_ls_names(self):
         text = "NT [Created 1h ago]\nWork [Created now]\n"
         self.assertEqual(cli._parse_zellij_ls_names(text), ["NT", "Work"])
