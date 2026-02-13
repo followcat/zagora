@@ -215,7 +215,7 @@ def _zellij_safe_config_bootstrap() -> str:
         'mkdir -p "$_zg_cfg_dir"; '
         'if [ ! -f "$_zg_cfg" ] || { [ -f "$_zg_src" ] && [ "$_zg_src" -nt "$_zg_cfg" ]; }; then '
         '{ if [ -f "$_zg_src" ]; then cat "$_zg_src"; printf "\\n"; fi; '
-        'printf \'keybinds {\\n  unbind "Ctrl q"\\n  locked {\\n    bind "Ctrl q" { Quit; }\\n  }\\n}\\n\'; } > "$_zg_cfg"; '
+        'printf \'default_mode "locked"\\nkeybinds {\\n  unbind "Ctrl q"\\n  normal {\\n    bind "Ctrl q" { Quit; }\\n  }\\n}\\n\'; } > "$_zg_cfg"; '
         "fi; "
     )
 
