@@ -243,6 +243,15 @@ def _zellij_open_remote(name: str) -> list[str]:
         'elif [ -x "$HOME/.local/bin/zellij" ]; then _zg_bin="$HOME/.local/bin/zellij"; '
         'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi; '
         + _zellij_safe_config_bootstrap()
+        + f"_zg_name={qname}; "
+        + '_zg_ls="$("$_zg_bin" list-sessions --no-formatting --short 2>/dev/null || true)"; '
+        + 'if [ -n "$_zg_ls" ]; then '
+        + '_zg_conflict="$(printf "%s\\n" "$_zg_ls" | awk -v n="$_zg_name" \'$0 != "" && $0 != n && (index($0, n) == 1 || index(n, $0) == 1) { print; exit }\')"; '
+        + 'if [ -n "$_zg_conflict" ]; then '
+        + 'printf \'zagora: remote session name conflict: requested "%s" matches existing "%s"; choose another name\\n\' "$_zg_name" "$_zg_conflict" >&2; '
+        + 'exit 21; '
+        + "fi; "
+        + "fi; "
         + f'_zg_open_once() {{ if "$_zg_bin" --help 2>/dev/null | grep -q -- "--session"; then "$_zg_bin" --config "$_zg_cfg" --session {qname}; '
         + f'else "$_zg_bin" --config "$_zg_cfg" attach --create {qname}; fi; }}; '
         + '_zg_err="$(mktemp)"; '

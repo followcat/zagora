@@ -231,6 +231,8 @@ class TestCommands(unittest.TestCase):
         self.assertIn("Quit;", argv[2])
         self.assertIn("already exists, but is dead", argv[2])
         self.assertIn("delete-session", argv[2])
+        self.assertIn("list-sessions --no-formatting --short", argv[2])
+        self.assertIn("remote session name conflict", argv[2])
 
     def test_zellij_remote_uses_safe_ctrl_q_config(self):
         argv = cli._zellij_remote(["ls"])
