@@ -226,6 +226,8 @@ class TestCommands(unittest.TestCase):
         self.assertIn("--session", argv[2])
         self.assertIn("--config", argv[2])
         self.assertIn("unbind \"Ctrl q\"", argv[2])
+        self.assertIn("locked {", argv[2])
+        self.assertIn("Quit;", argv[2])
 
     def test_zellij_remote_uses_safe_ctrl_q_config(self):
         argv = cli._zellij_remote(["ls"])
@@ -233,6 +235,8 @@ class TestCommands(unittest.TestCase):
         self.assertIn("--config", argv[2])
         self.assertIn("config-unbind-ctrl-q.kdl", argv[2])
         self.assertIn("unbind \"Ctrl q\"", argv[2])
+        self.assertIn("locked {", argv[2])
+        self.assertIn("Quit;", argv[2])
 
     def test_cmd_open_blocks_legacy_ansi_duplicate(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto", name="NT")
