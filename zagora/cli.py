@@ -971,7 +971,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 current_raw_by_norm[n].append(raw)
 
     definitive = _is_definitive_zellij_ls_output(combined_io, set(remote_names))
-    if not remote_names and current_names and (auth_or_transport_issue or not definitive):
+    if not remote_names and current_names and not definitive:
         reason = (
             "ssh/auth prompt seen"
             if auth_or_transport_issue
