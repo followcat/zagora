@@ -914,7 +914,21 @@ def cmd_kill(args: argparse.Namespace) -> int:
     remote = _zellij_remote(["kill-session", name])
     p = _run_remote_capture(args, target, remote)
     if p.returncode != 0:
-        sys.stderr.write(p.stderr)
+        # If kill failed but a definitive `zellij ls` shows the session is gone,
+        # treat this as stale-registry cleanup instead of a hard error.
+        first_text = f"{p.stdout or ''}\n{p.stderr or ''}"
+        if not _looks_like_auth_or_transport_issue(first_text):
+            probe = _run_remote_capture(args, target, _zellij_remote(["ls"]))
+            probe_text = f"{probe.stdout or ''}\n{probe.stderr or ''}"
+            probe_names = set(_parse_zellij_ls_names(probe_text))
+            definitive = _is_definitive_zellij_ls_output(probe_text, probe_names)
+            if definitive and name not in probe_names:
+                _remove_registry_name_variants(server, token, target, name)
+                sys.stderr.write(
+                    f"zagora: remote session '{name}' already missing on '{target}'; removed stale registry record\n"
+                )
+                return 0
+        sys.stderr.write(p.stderr or p.stdout)
         return p.returncode
 
     # remove from registry (including legacy ANSI/control-char variants)

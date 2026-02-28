@@ -529,6 +529,30 @@ class TestCommands(unittest.TestCase):
             self.assertCountEqual(removed_names, ["NT", "\x1b[32;1mNT\x1b[m"])
             self.assertTrue(all(c.kwargs.get("host") == "v100" for c in rm_mock.call_args_list))
 
+    def test_cmd_kill_prunes_registry_when_remote_already_missing(self):
+        args = argparse.Namespace(
+            host="http://s:9876",
+            token=None,
+            transport="auto",
+            connect="v100",
+            name="NT",
+        )
+        failed_kill = subprocess.CompletedProcess(
+            args=["ssh"], returncode=1, stdout="", stderr="No session named NT found.\n"
+        )
+        ls_after = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="NTcli [Created now]\n", stderr="")
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", side_effect=[failed_kill, ls_after]),
+            patch("zagora.cli.registry_ls", return_value=[{"name": "NT", "host": "v100"}]),
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_kill(args)
+            self.assertEqual(rc, 0)
+            rm_mock.assert_called_with("http://s:9876", "NT", token=None, host="v100")
+
     def test_cmd_attach_reconcile_removes_when_session_quit(self):
         args = argparse.Namespace(
             host="http://s:9876",
