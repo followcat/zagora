@@ -433,6 +433,14 @@ def _looks_like_auth_or_transport_issue(text: str) -> bool:
     return any(m in low for m in markers)
 
 
+def _is_password_prompt_only_noise(text: str) -> bool:
+    lines = [_normalize_session_name(line) for line in (text or "").splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return False
+    return all("password:" in line.lower() for line in lines)
+
+
 def _remove_registry_name_variants(
     server: str, token: str | None, host: str, name: str
 ) -> int:
@@ -463,6 +471,23 @@ def _remove_registry_name_variants(
             if getattr(e, "code", None) != 404:
                 sys.stderr.write(f"zagora: warning: failed to remove stale variant '{canonical}': {e}\n")
     return removed
+
+
+def _is_registry_session_host_down(
+    server: str, token: str | None, host: str, name: str
+) -> bool:
+    canonical = _normalize_session_name(name)
+    if not canonical:
+        return False
+    try:
+        sessions = registry_ls(server, token=token, host=host)
+    except RegistryError:
+        return False
+    for s in sessions:
+        raw = s.get("name")
+        if isinstance(raw, str) and _normalize_session_name(raw) == canonical:
+            return s.get("host_reachable") is False
+    return False
 
 
 def _lookup_session_target(server: str, token: str | None, name: str) -> tuple[str, str]:
@@ -928,6 +953,13 @@ def cmd_kill(args: argparse.Namespace) -> int:
                     f"zagora: remote session '{name}' already missing on '{target}'; removed stale registry record\n"
                 )
                 return 0
+        # If registry already marks host as down, allow registry-only cleanup.
+        if _is_registry_session_host_down(server, token, target, name):
+            _remove_registry_name_variants(server, token, target, name)
+            sys.stderr.write(
+                f"zagora: host '{target}' is down; removed stale registry record for '{name}'\n"
+            )
+            return 0
         sys.stderr.write(p.stderr or p.stdout)
         return p.returncode
 
@@ -971,6 +1003,24 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 current_raw_by_norm[n].append(raw)
 
     definitive = _is_definitive_zellij_ls_output(combined_io, set(remote_names))
+    if not definitive and p.returncode == 0 and _is_password_prompt_only_noise(combined_io):
+        definitive = True
+    # First probe can be ambiguous right after interactive password entry.
+    # Retry once before deciding whether destructive pruning is safe.
+    if not remote_names and not definitive:
+        probe = _run_remote_capture(args, target, _zellij_remote(["ls"]))
+        probe_io = f"{probe.stdout or ''}\n{probe.stderr or ''}"
+        probe_names = _parse_zellij_ls_names(probe_io)
+        probe_definitive = _is_definitive_zellij_ls_output(probe_io, set(probe_names))
+        if not probe_definitive and probe.returncode == 0 and _is_password_prompt_only_noise(probe_io):
+            probe_definitive = True
+        if probe_names or probe_definitive:
+            p = probe
+            combined_io = probe_io
+            remote_names = probe_names
+            definitive = probe_definitive
+            auth_or_transport_issue = _looks_like_auth_or_transport_issue(combined_io)
+
     if not remote_names and current_names and not definitive:
         reason = (
             "ssh/auth prompt seen"
