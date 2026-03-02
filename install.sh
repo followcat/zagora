@@ -7,12 +7,17 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/followcat/zagora/main/install.sh | bash
 #
 # Override source:
-#   ZAGORA_INSTALL_REPO=owner/repo ZAGORA_INSTALL_REF=main bash install.sh
+#   ZAGORA_INSTALL_REPO=owner/repo ZAGORA_INSTALL_REF=latest bash install.sh
 #   ZAGORA_INSTALL_ZIP_URL=https://github.com/owner/repo/archive/refs/tags/v0.0.1.zip bash install.sh
 
 REPO="${ZAGORA_INSTALL_REPO:-followcat/zagora}"
-REF="${ZAGORA_INSTALL_REF:-main}"
-ZIP_URL="${ZAGORA_INSTALL_ZIP_URL:-https://github.com/${REPO}/archive/refs/heads/${REF}.zip}"
+REF="${ZAGORA_INSTALL_REF:-latest}"
+if [ "${REF}" = "latest" ]; then
+  _default_zip_url="https://github.com/${REPO}/archive/refs/tags/${REF}.zip"
+else
+  _default_zip_url="https://github.com/${REPO}/archive/refs/heads/${REF}.zip"
+fi
+ZIP_URL="${ZAGORA_INSTALL_ZIP_URL:-${_default_zip_url}}"
 
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 PREFIX="$DATA_HOME/zagora"

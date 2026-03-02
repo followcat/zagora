@@ -1235,10 +1235,13 @@ def cmd_update(args: argparse.Namespace) -> int:
     from pathlib import Path
 
     repo = getattr(args, "repo", None) or os.environ.get("ZAGORA_INSTALL_REPO", "followcat/zagora")
-    ref = getattr(args, "ref", None) or os.environ.get("ZAGORA_INSTALL_REF", "main")
+    ref = getattr(args, "ref", None) or os.environ.get("ZAGORA_INSTALL_REF", "latest")
     zip_url = getattr(args, "zip_url", None) or os.environ.get("ZAGORA_INSTALL_ZIP_URL")
     if not zip_url:
-        zip_url = f"https://github.com/{repo}/archive/refs/heads/{ref}.zip"
+        if ref == "latest":
+            zip_url = f"https://github.com/{repo}/archive/refs/tags/{ref}.zip"
+        else:
+            zip_url = f"https://github.com/{repo}/archive/refs/heads/{ref}.zip"
 
     src = f"{repo}@{ref}"
 
@@ -1546,11 +1549,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             "  zagora update\n"
             "  zagora update --force\n"
-            "  zagora update --ref main\n"
+            "  zagora update --ref release\n"
+            "  zagora update --ref latest\n"
         ),
     )
     p_up.add_argument("--repo", help="GitHub repo (owner/repo); env: ZAGORA_INSTALL_REPO")
-    p_up.add_argument("--ref", help="Git ref/branch; env: ZAGORA_INSTALL_REF")
+    p_up.add_argument("--ref", help="Git ref/branch/tag (default: latest); env: ZAGORA_INSTALL_REF")
     p_up.add_argument("--zip-url", help="override zip url; env: ZAGORA_INSTALL_ZIP_URL")
     p_up.add_argument("--force", action="store_true", help="force reinstall even if up-to-date")
     p_up.add_argument("-q", "--quiet", action="store_true", help="quiet pip output")
