@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shlex
 import sys
@@ -28,6 +29,38 @@ BANNER = r"""
 
 zagora — centralized zellij sessions over tailscale
 """
+
+
+_USE_COLOR = False
+
+
+def _configure_color(args: argparse.Namespace) -> None:
+    global _USE_COLOR
+    no_color = bool(getattr(args, "no_color", False)) or (os.environ.get("NO_COLOR") is not None)
+    term = os.environ.get("TERM", "")
+    _USE_COLOR = (not no_color) and term != "dumb" and sys.stdout.isatty() and sys.stderr.isatty()
+
+
+def _paint(text: str, code: str) -> str:
+    if not _USE_COLOR:
+        return text
+    return f"\x1b[{code}m{text}\x1b[0m"
+
+
+def _accent(text: str) -> str:
+    return _paint(text, "36")
+
+
+def _ok(text: str) -> str:
+    return _paint(text, "32")
+
+
+def _warn(text: str) -> str:
+    return _paint(text, "33")
+
+
+def _err(text: str) -> str:
+    return _paint(text, "31")
 
 
 # ---------------------------------------------------------------------------
@@ -1084,7 +1117,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             else "remote session list is empty but not definitive"
         )
         sys.stderr.write(
-            f"zagora: sync skipped destructive changes ({reason})\n"
+            _warn(f"zagora: sync skipped destructive changes ({reason})\n")
         )
         return 1
 
@@ -1148,9 +1181,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
     line = f"synced {target}: discovered {discovered}, added {added}, updated {updated}, removed {removed_sessions}"
     if removed_aliases:
         line += f" (aliases {removed_aliases})"
-    sys.stdout.write(line + "\n")
+    sys.stdout.write(_ok(line + "\n"))
     if failed:
-        sys.stderr.write(f"zagora: sync completed with {failed} errors\n")
+        sys.stderr.write(_warn(f"zagora: sync completed with {failed} errors\n"))
         return 1
     return 0
 
@@ -1345,7 +1378,7 @@ def cmd_update(args: argparse.Namespace) -> int:
 
     if remote_sha and not getattr(args, "force", False) and before_src == src and before_sha == remote_sha:
         short = remote_sha[:12]
-        sys.stdout.write(f"zagora up-to-date: {src}@{short} (v{before_ver or '?'})\n")
+        sys.stdout.write(_ok(f"zagora up-to-date: {src}@{short} (v{before_ver or '?'})\n"))
         return 0
 
     cmd = [
@@ -1392,16 +1425,16 @@ def cmd_update(args: argparse.Namespace) -> int:
 
         short = remote_sha[:12]
         if before_sha and before_src == src and before_sha != remote_sha:
-            sys.stdout.write(f"zagora updated: {before_sha[:12]} -> {short} (v{after_ver or '?'})\n")
+            sys.stdout.write(_ok(f"zagora updated: {before_sha[:12]} -> {short} (v{after_ver or '?'})\n"))
         else:
-            sys.stdout.write(f"zagora updated: {src}@{short} (v{after_ver or '?'})\n")
+            sys.stdout.write(_ok(f"zagora updated: {src}@{short} (v{after_ver or '?'})\n"))
     else:
         if before_ver and after_ver and before_ver != after_ver:
-            sys.stdout.write(f"zagora updated: v{before_ver} -> v{after_ver}\n")
+            sys.stdout.write(_ok(f"zagora updated: v{before_ver} -> v{after_ver}\n"))
         else:
-            sys.stdout.write(f"zagora updated: v{after_ver or before_ver or '?'}\n")
+            sys.stdout.write(_ok(f"zagora updated: v{after_ver or before_ver or '?'}\n"))
 
-    sys.stdout.write("note: restart 'zagora' to use updated code\n")
+    sys.stdout.write(_accent("note: restart 'zagora' to use updated code\n"))
     return 0
 
 
@@ -1410,9 +1443,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for cmd in ("tailscale", "ssh"):
         try:
             require_cmd(cmd)
-            sys.stdout.write(f"  ✓ {cmd}\n")
+            sys.stdout.write(_ok(f"  ✓ {cmd}\n"))
         except ZagoraError:
-            sys.stdout.write(f"  ✗ {cmd} not found\n")
+            sys.stdout.write(_err(f"  ✗ {cmd} not found\n"))
             ok = False
 
     p = run_capture(["tailscale", "version"])
@@ -1425,12 +1458,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         try:
             from zagora.registry import _request
             _request(f"{s}/health", token=_token(args))
-            sys.stdout.write(f"  ✓ server {s}\n")
+            sys.stdout.write(_ok(f"  ✓ server {s}\n"))
         except Exception as e:
-            sys.stdout.write(f"  ✗ server {s}: {e}\n")
+            sys.stdout.write(_err(f"  ✗ server {s}: {e}\n"))
             ok = False
     else:
-        sys.stdout.write("  - server not configured\n")
+        sys.stdout.write(_warn("  - server not configured\n"))
 
     return 0 if ok else 1
 
@@ -1477,6 +1510,12 @@ def _add_common(sub: argparse.ArgumentParser) -> None:
         default=argparse.SUPPRESS,
         help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
     )
+    sub.add_argument(
+        "--no-color",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="disable colored CLI output",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1496,6 +1535,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--ssh-control-persist",
         help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
     )
+    p.add_argument("--no-color", action="store_true", help="disable colored CLI output")
 
     sp = p.add_subparsers(dest="cmd")
 
@@ -1651,6 +1691,8 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         base += ["--transport", str(args.transport)]
     if getattr(args, "ssh_control_persist", None):
         base += ["--ssh-control-persist", str(args.ssh_control_persist)]
+    if getattr(args, "no_color", None):
+        base += ["--no-color"]
 
     parser = build_parser()
 
@@ -1807,12 +1849,12 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             line_argv = _rewrite_repl_shorthand(shlex.split(line))
             argv2 = base + line_argv
         except ValueError as e:
-            sys.stderr.write(f"zagora: {e}\n")
+            sys.stderr.write(_err(f"zagora: {e}\n"))
             continue
 
         # Avoid nesting interactive mode
         if line_argv and line_argv[0] in {"interactive", "i"}:
-            sys.stderr.write("zagora: already in interactive mode\n")
+            sys.stderr.write(_warn("zagora: already in interactive mode\n"))
             continue
 
         try:
@@ -1822,11 +1864,11 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             setattr(args2, "_repl_mode", True)
             func = getattr(args2, "func", None)
             if not func:
-                sys.stderr.write("zagora: unknown command\n")
+                sys.stderr.write(_err("zagora: unknown command\n"))
                 continue
             rc = func(args2)
             if isinstance(rc, int) and rc != 0:
-                sys.stderr.write(f"zagora: command exited with {rc}\n")
+                sys.stderr.write(_warn(f"zagora: command exited with {rc}\n"))
         except KeyboardInterrupt:
             sys.stdout.write("\n")
             continue
@@ -1834,12 +1876,13 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             # argparse error; keep REPL running
             continue
         except (ZagoraError, RegistryError) as e:
-            sys.stderr.write(f"zagora: {e}\n")
+            sys.stderr.write(_err(f"zagora: {e}\n"))
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    _configure_color(args)
 
     # If no subcommand is provided, enter interactive mode.
     if not getattr(args, "cmd", None):
@@ -1848,10 +1891,10 @@ def main(argv: list[str] | None = None) -> None:
     try:
         rc = args.func(args)
     except ZagoraError as e:
-        sys.stderr.write(f"zagora: {e}\n")
+        sys.stderr.write(_err(f"zagora: {e}\n"))
         raise SystemExit(2)
     except RegistryError as e:
-        sys.stderr.write(f"zagora: {e}\n")
+        sys.stderr.write(_err(f"zagora: {e}\n"))
         raise SystemExit(2)
     raise SystemExit(rc)
 
