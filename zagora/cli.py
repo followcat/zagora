@@ -1072,8 +1072,6 @@ def cmd_sync(args: argparse.Namespace) -> int:
         and not definitive
         and first_probe_rc == 0
         and second_probe_rc == 0
-        and _is_effectively_empty_output(first_probe_io)
-        and _is_effectively_empty_output(second_probe_io or "")
         and not _looks_like_auth_or_transport_issue(first_probe_io)
         and not _looks_like_auth_or_transport_issue(second_probe_io or "")
     ):

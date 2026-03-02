@@ -399,7 +399,7 @@ class TestCommands(unittest.TestCase):
             reg_mock.assert_not_called()
             rm_mock.assert_called_once_with("http://s:9876", "A", token=None, host="v100")
 
-    def test_cmd_sync_skips_destructive_when_empty_output_not_definitive(self):
+    def test_cmd_sync_prunes_when_two_successful_probes_have_no_sessions(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
         first = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
         second = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="@@@\n", stderr="")
@@ -414,9 +414,9 @@ class TestCommands(unittest.TestCase):
             patch("zagora.cli.registry_remove") as rm_mock,
         ):
             rc = cli.cmd_sync(args)
-            self.assertEqual(rc, 1)
+            self.assertEqual(rc, 0)
             reg_mock.assert_not_called()
-            rm_mock.assert_not_called()
+            rm_mock.assert_called_once_with("http://s:9876", "A", token=None, host="v100")
 
     def test_cmd_sync_prunes_when_two_probes_are_both_empty_and_clean(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
