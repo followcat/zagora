@@ -1804,17 +1804,17 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             pass
 
     sys.stdout.write(
-        BANNER
+        _accent(BANNER)
         + "\n"
-        + "interactive mode (shared history via server)\n"
-        + "Commands: ls, open, attach(a), kill, sync, refresh, update, doctor, install-zellij\n"
-        + "Maintenance: sync -c <host> / refresh(auto-prune) / update\n"
-        + "Type 'help' for full help, Tab for completion, 'exit' to quit.\n\n"
+        + _accent("interactive mode (shared history via server)\n")
+        + _ok("Commands: ls, open, attach(a), kill, sync, refresh, update, doctor, install-zellij\n")
+        + _warn("Maintenance: sync -c <host> / refresh(auto-prune) / update\n")
+        + _accent("Type 'help' for full help, Tab for completion, 'exit' to quit.\n\n")
     )
 
     while True:
         try:
-            line = input("zagora> ").strip()
+            line = input(_accent("zagora> ")).strip()
         except EOFError:
             sys.stdout.write("\n")
             return 0
