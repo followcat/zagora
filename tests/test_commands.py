@@ -437,6 +437,26 @@ class TestCommands(unittest.TestCase):
             reg_mock.assert_not_called()
             rm_mock.assert_called_once_with("http://s:9876", "A", token=None, host="v100")
 
+    def test_cmd_sync_prunes_when_two_probes_only_have_known_ssh_noise(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        noise = "Warning: Permanently added '100.120.110.114' (ED25519) to the list of known hosts.\n"
+        first = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr=noise)
+        second = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr=noise)
+        current = [{"name": "A", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", side_effect=[first, second]),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            reg_mock.assert_not_called()
+            rm_mock.assert_called_once_with("http://s:9876", "A", token=None, host="v100")
+
     def test_cmd_sync_retries_once_on_ambiguous_empty_then_registers(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
         first = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")

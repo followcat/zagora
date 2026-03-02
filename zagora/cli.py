@@ -378,6 +378,8 @@ def _parse_zellij_ls_names(output: str) -> list[str]:
             or low.startswith("no active sessions")
         ):
             continue
+        if _is_non_session_probe_noise_line(low):
+            continue
         # Exited/resurrectable sessions should not be treated as running.
         if re.search(r"[\[(]\s*exited\b", low):
             continue
@@ -441,10 +443,43 @@ def _is_password_prompt_only_noise(text: str) -> bool:
     return all("password:" in line.lower() for line in lines)
 
 
+def _is_non_session_probe_noise_line(line: str) -> bool:
+    low = (line or "").strip().lower()
+    if not low:
+        return True
+    if (
+        low.startswith("no active zellij session")
+        or low.startswith("no zellij sessions")
+        or low.startswith("no active sessions")
+    ):
+        return True
+    if low.startswith("warning: permanently added ") and "known hosts" in low:
+        return True
+    if low.startswith("pseudo-terminal will not be allocated"):
+        return True
+    if low.startswith("shared connection to ") and " closed" in low:
+        return True
+    if low.startswith("connection to ") and " closed" in low:
+        return True
+    if low.startswith("stdin is not a tty"):
+        return True
+    if low.startswith("mesg: ttyname failed"):
+        return True
+    return False
+
+
 def _is_effectively_empty_output(text: str) -> bool:
     lines = [_normalize_session_name(line) for line in (text or "").splitlines()]
     lines = [line for line in lines if line]
-    return not lines
+    if not lines:
+        return True
+    for line in lines:
+        if _looks_like_auth_or_transport_issue(line):
+            return False
+        if _is_non_session_probe_noise_line(line):
+            continue
+        return False
+    return True
 
 
 def _remove_registry_name_variants(
