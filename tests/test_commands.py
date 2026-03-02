@@ -401,13 +401,14 @@ class TestCommands(unittest.TestCase):
 
     def test_cmd_sync_skips_destructive_when_empty_output_not_definitive(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
-        remote = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        first = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        second = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="@@@\n", stderr="")
         current = [{"name": "A", "host": "v100"}]
         with (
             patch("zagora.cli.require_cmd"),
             patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
             patch("zagora.cli._token", return_value=None),
-            patch("zagora.cli._run_remote_capture", return_value=remote),
+            patch("zagora.cli._run_remote_capture", side_effect=[first, second]),
             patch("zagora.cli.registry_ls", return_value=current),
             patch("zagora.cli.registry_register") as reg_mock,
             patch("zagora.cli.registry_remove") as rm_mock,
@@ -416,6 +417,25 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(rc, 1)
             reg_mock.assert_not_called()
             rm_mock.assert_not_called()
+
+    def test_cmd_sync_prunes_when_two_probes_are_both_empty_and_clean(self):
+        args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
+        first = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        second = subprocess.CompletedProcess(args=["ssh"], returncode=0, stdout="", stderr="")
+        current = [{"name": "A", "host": "v100"}]
+        with (
+            patch("zagora.cli.require_cmd"),
+            patch("zagora.cli._server_or_exit", return_value="http://s:9876"),
+            patch("zagora.cli._token", return_value=None),
+            patch("zagora.cli._run_remote_capture", side_effect=[first, second]),
+            patch("zagora.cli.registry_ls", return_value=current),
+            patch("zagora.cli.registry_register") as reg_mock,
+            patch("zagora.cli.registry_remove") as rm_mock,
+        ):
+            rc = cli.cmd_sync(args)
+            self.assertEqual(rc, 0)
+            reg_mock.assert_not_called()
+            rm_mock.assert_called_once_with("http://s:9876", "A", token=None, host="v100")
 
     def test_cmd_sync_retries_once_on_ambiguous_empty_then_registers(self):
         args = argparse.Namespace(connect="v100", host="http://s:9876", token=None, transport="auto")
