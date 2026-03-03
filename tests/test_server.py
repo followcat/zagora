@@ -1,4 +1,5 @@
 import json
+import urllib.request
 import threading
 import time
 import unittest
@@ -167,6 +168,14 @@ class TestServerAndRegistry(unittest.TestCase):
         left = registry_ls(self.url)
         self.assertEqual(len(left), 1)
         self.assertEqual(left[0]["host"], "t14")
+
+    def test_options_includes_cors_headers(self):
+        req = urllib.request.Request(f"{self.url}/sessions", method="OPTIONS")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 204)
+            self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
+            self.assertIn("GET", resp.headers.get("Access-Control-Allow-Methods", ""))
+            self.assertIn("Authorization", resp.headers.get("Access-Control-Allow-Headers", ""))
 
 
 class TestServerAuth(unittest.TestCase):

@@ -281,6 +281,12 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
             # quiet logging: single line
             pass
 
+        def _set_cors_headers(self) -> None:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header("Access-Control-Max-Age", "600")
+
         def _check_token(self) -> bool:
             if not token:
                 return True
@@ -293,10 +299,15 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
         def _json_response(self, code: int, body: Any) -> None:
             data = json.dumps(body, default=str).encode()
             self.send_response(code)
+            self._set_cors_headers()
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                # Client closed connection before reading response.
+                return
 
         def _read_json(self) -> Any:
             length = int(self.headers.get("Content-Length", 0))
@@ -305,6 +316,12 @@ def _make_handler(store: SessionStore, history: HistoryStore, token: str | None)
             return json.loads(self.rfile.read(length))
 
         # -- routes -----------------------------------------------------------
+
+        def do_OPTIONS(self):  # noqa: N802
+            self.send_response(204)
+            self._set_cors_headers()
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def do_GET(self):  # noqa: N802
             if not self._check_token():
