@@ -7,3 +7,7 @@ build/
 *.egg-info/
 .pytest_cache/
 .coverage
+.idea/
+mobile/android/.gradle-home/
+mobile/android/.gradle-user-home/
+mobile/web/__pycache__/
