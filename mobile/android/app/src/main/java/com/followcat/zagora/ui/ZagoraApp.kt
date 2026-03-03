@@ -511,11 +511,22 @@ private fun AttachScreen(
                     FilledTonalButton(onClick = { screenScope.launch { outputScroll.scrollTo(0) } }, colors = zagoraTonalButtonColors()) { Text("Top") }
                     FilledTonalButton(onClick = { screenScope.launch { outputScroll.scrollTo(outputScroll.maxValue) } }, colors = zagoraTonalButtonColors()) { Text("Bottom") }
                 }
-                Text(
-                    text = attachState.message.ifBlank { "Ready" },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                    color = if (attachState.message.contains("fail", true) || attachState.message.contains("error", true)) Color(0xFFFCA5A5) else Color(0xFFE2E8F0)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = attachState.message.ifBlank { "Ready" },
+                        color = if (attachState.message.contains("fail", true) || attachState.message.contains("error", true)) Color(0xFFFCA5A5) else Color(0xFFE2E8F0)
+                    )
+                    StatusBadge(
+                        text = if (attachState.connected) "CONNECTED" else "DISCONNECTED",
+                        bg = if (attachState.connected) Color(0xFF34D399) else Color(0xFF94A3B8)
+                    )
+                }
                 SelectionContainer {
                     Text(
                         text = terminalAnnotated,
@@ -523,10 +534,11 @@ private fun AttachScreen(
                             .fillMaxSize()
                             .verticalScroll(outputScroll)
                             .horizontalScroll(outputXScroll)
-                            .padding(12.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         color = Color(0xFFE2E8F0),
                         fontFamily = FontFamily.Monospace,
                         fontSize = terminalFontSize.sp,
+                        lineHeight = (terminalFontSize + 6f).sp,
                         softWrap = false
                     )
                 }
@@ -586,40 +598,53 @@ private fun AttachScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(top = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("导航", color = Color(0xFF94A3B8))
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilledTonalButton(onClick = onSendArrowUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Up") }
-                            FilledTonalButton(onClick = onSendArrowDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Down") }
-                            FilledTonalButton(onClick = onSendArrowLeft, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Left") }
-                            FilledTonalButton(onClick = onSendArrowRight, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Right") }
-                            FilledTonalButton(onClick = { onSendVimNav("h") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("h") }
-                            FilledTonalButton(onClick = { onSendVimNav("j") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("j") }
-                            FilledTonalButton(onClick = { onSendVimNav("k") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("k") }
-                            FilledTonalButton(onClick = { onSendVimNav("l") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("l") }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("导航", color = Color(0xFF93C5FD), fontWeight = FontWeight.SemiBold)
+                                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilledTonalButton(onClick = onSendArrowUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Up") }
+                                    FilledTonalButton(onClick = onSendArrowDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Down") }
+                                    FilledTonalButton(onClick = onSendArrowLeft, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Left") }
+                                    FilledTonalButton(onClick = onSendArrowRight, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Right") }
+                                    FilledTonalButton(onClick = { onSendVimNav("h") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("h") }
+                                    FilledTonalButton(onClick = { onSendVimNav("j") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("j") }
+                                    FilledTonalButton(onClick = { onSendVimNav("k") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("k") }
+                                    FilledTonalButton(onClick = { onSendVimNav("l") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("l") }
+                                }
+                                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilledTonalButton(onClick = onSendEsc, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Esc") }
+                                    FilledTonalButton(onClick = onSendTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Tab") }
+                                    FilledTonalButton(onClick = onSendShiftTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("S-Tab") }
+                                    FilledTonalButton(onClick = onSendPageUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PgUp") }
+                                    FilledTonalButton(onClick = onSendPageDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PgDn") }
+                                    FilledTonalButton(onClick = onSendHome, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Home") }
+                                    FilledTonalButton(onClick = onSendEnd, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("End") }
+                                }
+                            }
                         }
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilledTonalButton(onClick = onSendEsc, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Esc") }
-                            FilledTonalButton(onClick = onSendTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Tab") }
-                            FilledTonalButton(onClick = onSendShiftTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("S-Tab") }
-                            FilledTonalButton(onClick = onSendPageUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PgUp") }
-                            FilledTonalButton(onClick = onSendPageDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PgDn") }
-                            FilledTonalButton(onClick = onSendHome, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Home") }
-                            FilledTonalButton(onClick = onSendEnd, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("End") }
-                        }
-                        Text("控制", color = Color(0xFF94A3B8))
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilledTonalButton(onClick = { onSendCtrl('A') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+A") }
-                            FilledTonalButton(onClick = { onSendCtrl('D') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+D") }
-                            FilledTonalButton(onClick = { onSendCtrl('L') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+L") }
-                            FilledTonalButton(onClick = { onSendCtrl('Z') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+Z") }
-                        }
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilledTonalButton(onClick = { onSendAlt('b') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Alt+B") }
-                            FilledTonalButton(onClick = { onSendAlt('f') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Alt+F") }
-                            FilledTonalButton(onClick = { onSendAlt('d') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Alt+D") }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("编辑/控制", color = Color(0xFF93C5FD), fontWeight = FontWeight.SemiBold)
+                                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilledTonalButton(onClick = { onSendCtrl('A') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+A") }
+                                    FilledTonalButton(onClick = { onSendCtrl('D') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+D") }
+                                    FilledTonalButton(onClick = { onSendCtrl('L') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+L") }
+                                    FilledTonalButton(onClick = { onSendCtrl('Z') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+Z") }
+                                    FilledTonalButton(onClick = { onSendAlt('b') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Alt+B") }
+                                    FilledTonalButton(onClick = { onSendAlt('f') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Alt+F") }
+                                    FilledTonalButton(onClick = { onSendAlt('d') }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Alt+D") }
+                                }
+                            }
                         }
                     }
                 }
