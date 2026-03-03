@@ -73,6 +73,16 @@ bash scripts/verify_android_env.sh
 - 该版本为 P0，可用性优先；高级终端体验（快捷键栏、粘贴板增强）会在后续 P1 完成。
 - 仍保留 **Open SSH** 作为回退路径。
 
+## Attach UI（P1）更新
+
+- 终端页顶部新增连接状态机标签：`Connecting / Attaching / Connected / Disconnected / Error`。
+- Extra Keys Row 调整为两行默认键位：
+  - Row1: `ESC TAB S-TAB CTRL* ALT* ← ↓ ↑ →`
+  - Row2: `PGUP PGDN HOME END INS DEL COPY PASTE DETACH`
+- `CTRL* / ALT*` 为粘滞键，开启后按钮高亮，下一次发送后自动释放。
+- 多行粘贴默认二次确认（可在 Settings 面板中关闭）。
+- 顶部展示流量统计（`in/out` 字节）和错误码，便于诊断连通性问题。
+
 ## Attach 快捷键与触摸操作（当前版本）
 
 在 Attach 页面已内置快捷操作栏：
