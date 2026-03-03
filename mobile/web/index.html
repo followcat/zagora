@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zagora Web</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+    <main class="app">
+      <header class="panel hero">
+        <h1>Zagora Web Console</h1>
+        <p>Fast interaction prototype for session control and SSH handoff.</p>
+      </header>
+
+      <section class="panel form-panel">
+        <div class="grid">
+          <label>
+            Server
+            <input id="server" placeholder="http://t14:9876" />
+          </label>
+          <label>
+            Token
+            <input id="token" placeholder="optional" />
+          </label>
+          <label>
+            SSH User
+            <input id="sshUser" placeholder="optional (e.g. followcat)" />
+          </label>
+          <label>
+            Host Filter
+            <input id="hostFilter" placeholder="optional (e.g. v100)" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="saveBtn" class="btn subtle">Save</button>
+          <button id="healthBtn" class="btn subtle">Connect</button>
+          <button id="openViewBtn" class="btn" disabled>open ...</button>
+        </div>
+      </section>
+
+      <section id="openView" class="panel hidden">
+        <div class="row-head">
+          <h2>open (create/register session)</h2>
+        </div>
+        <div class="grid two-col">
+          <label>
+            Session Name
+            <input id="newName" placeholder="required (e.g. Work)" />
+          </label>
+          <label>
+            Target Host
+            <input id="newHost" placeholder="required (e.g. v100)" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="createBtn" class="btn">Create</button>
+          <button id="closeOpenViewBtn" class="btn subtle">Cancel</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div id="status" class="status">Ready</div>
+      </section>
+
+      <section class="panel">
+        <div class="row-head">
+          <h2>Sessions</h2>
+          <span id="count" class="badge">0</span>
+        </div>
+        <div id="sessions" class="sessions"></div>
+      </section>
+    </main>
+
+    <template id="sessionTemplate">
+      <article class="session-card">
+        <div class="card-top">
+          <h3 class="name"></h3>
+          <span class="badge status-badge"></span>
+        </div>
+        <div class="meta"></div>
+        <div class="card-actions">
+          <button class="btn open-ssh">attach</button>
+          <button class="btn subtle remove">kill</button>
+        </div>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
