@@ -48,7 +48,9 @@ def tailscale_ssh(
     if x11:
         cmd.append("-Y")
     if tty:
-        cmd.append("-t")
+        # Force pseudo-terminal allocation even when nested in another TTY app
+        # (e.g. running zagora inside local zellij/tmux).
+        cmd += ["-t", "-t"]
     cmd += [host, "--", *remote_argv]
     return cmd
 
@@ -70,6 +72,7 @@ def ssh_via_tailscale(
     if cp and cp.lower() not in {"0", "off", "no", "false"}:
         cmd += ["-o", "ControlMaster=auto", "-o", f"ControlPersist={cp}", "-o", "ControlPath=~/.ssh/zagora-%C"]
     if tty:
-        cmd.append("-t")
+        # Force pseudo-terminal allocation even when stdin is not considered a tty.
+        cmd += ["-t", "-t"]
     cmd += [h, "--", *remote_argv]
     return cmd

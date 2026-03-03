@@ -256,6 +256,7 @@ def _zellij_safe_config_bootstrap() -> str:
 def _zellij_remote(argv: list[str]) -> list[str]:
     joined = " ".join(shlex.quote(a) for a in argv)
     script = (
+        'export TERM="xterm-256color"; '
         'if command -v zellij >/dev/null 2>&1; then _zg_bin="zellij"; '
         'elif [ -x "$HOME/.local/bin/zellij" ]; then _zg_bin="$HOME/.local/bin/zellij"; '
         'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi; '
@@ -272,6 +273,7 @@ def _zellij_remote(argv: list[str]) -> list[str]:
 def _zellij_open_remote(name: str) -> list[str]:
     qname = shlex.quote(name)
     script = (
+        'export TERM="xterm-256color"; '
         'if command -v zellij >/dev/null 2>&1; then _zg_bin="zellij"; '
         'elif [ -x "$HOME/.local/bin/zellij" ]; then _zg_bin="$HOME/.local/bin/zellij"; '
         'else echo "zellij not found; run: zagora install-zellij -c <host>" >&2; exit 127; fi; '
