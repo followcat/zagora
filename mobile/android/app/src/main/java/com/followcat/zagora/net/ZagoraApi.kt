@@ -1,6 +1,8 @@
 package com.followcat.zagora.net
 
 import com.followcat.zagora.model.Session
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -46,10 +48,13 @@ object ZagoraApiFactory {
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
+        val moshi = Moshi.Builder()
+            .addLast(KotlinJsonAdapterFactory())
+            .build()
 
         return Retrofit.Builder()
             .baseUrl(baseUrl)
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .client(client)
             .build()
             .create(ZagoraApi::class.java)
@@ -64,4 +69,3 @@ object ZagoraApiFactory {
         return if (withScheme.endsWith("/")) withScheme else "$withScheme/"
     }
 }
-
