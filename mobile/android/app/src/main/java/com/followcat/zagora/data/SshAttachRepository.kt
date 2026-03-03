@@ -16,17 +16,44 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.nio.charset.StandardCharsets
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.nio.charset.StandardCharsets
+
+enum class AttachPhase {
+    Idle,
+    Connecting,
+    Attaching,
+    Connected,
+    Reconnecting,
+    Disconnected,
+    Error
+}
+
+enum class AttachErrorCode {
+    None,
+    RegistryUnreachable,
+    SshNetwork,
+    SshAuth,
+    ZellijMissing,
+    Timeout,
+    Unknown
+}
 
 data class AttachState(
     val host: String = "",
     val sessionName: String = "",
+    val user: String = "",
     val connecting: Boolean = false,
     val connected: Boolean = false,
+    val phase: AttachPhase = AttachPhase.Idle,
+    val errorCode: AttachErrorCode = AttachErrorCode.None,
+    val latencyMs: Long? = null,
+    val canRetry: Boolean = false,
+    val rawBytesIn: Long = 0,
+    val rawBytesOut: Long = 0,
     val message: String = "",
     val output: String = ""
 )
@@ -49,22 +76,43 @@ class SshAttachRepository(
     private var readJob: Job? = null
 
     suspend fun connect(host: String, user: String, password: String, sessionName: String) {
-        if (host.isBlank() || user.isBlank()) {
-            _state.update { it.copy(message = "Host and SSH user are required") }
+        val cleanHost = host.trim()
+        val cleanUser = user.trim()
+        val cleanSession = sessionName.trim()
+        if (cleanHost.isBlank() || cleanUser.isBlank()) {
+            _state.update {
+                it.copy(
+                    host = cleanHost,
+                    sessionName = cleanSession,
+                    user = cleanUser,
+                    phase = AttachPhase.Error,
+                    errorCode = AttachErrorCode.Unknown,
+                    connecting = false,
+                    connected = false,
+                    canRetry = false,
+                    message = "Host and SSH user are required"
+                )
+            }
             return
         }
-        disconnect()
+        disconnect(updateState = false)
+        val startAt = System.currentTimeMillis()
         _state.value = AttachState(
-            host = host.trim(),
-            sessionName = sessionName.trim(),
+            host = cleanHost,
+            sessionName = cleanSession,
+            user = cleanUser,
             connecting = true,
-            message = "Connecting ${user.trim()}@${host.trim()} ..."
+            connected = false,
+            phase = AttachPhase.Connecting,
+            errorCode = AttachErrorCode.None,
+            canRetry = false,
+            message = "Connecting $cleanUser@$cleanHost ..."
         )
 
         runCatching {
             withContext(ioDispatcher) {
                 val jsch = JSch()
-                val session = jsch.getSession(user.trim(), host.trim(), 22)
+                val session = jsch.getSession(cleanUser, cleanHost, 22)
                 if (password.isNotBlank()) {
                     session.setPassword(password)
                 }
@@ -83,24 +131,40 @@ class SshAttachRepository(
         }.onSuccess {
             _state.update {
                 it.copy(
-                    connecting = false,
+                    connecting = true,
                     connected = true,
-                    message = "Connected ${user.trim()}@${host.trim()}. Attaching zellij..."
+                    phase = AttachPhase.Attaching,
+                    errorCode = AttachErrorCode.None,
+                    canRetry = false,
+                    latencyMs = (System.currentTimeMillis() - startAt).coerceAtLeast(1),
+                    message = "Connected $cleanUser@$cleanHost. Attaching zellij..."
                 )
             }
-            sendLine(buildAttachCommand(sessionName))
+            sendLine(buildAttachCommand(cleanSession))
             _state.update {
                 it.copy(
-                    message = "Attach command sent for ${sessionName.ifBlank { "default" }} (waiting remote output)"
+                    connecting = false,
+                    connected = true,
+                    phase = AttachPhase.Connected,
+                    errorCode = AttachErrorCode.None,
+                    canRetry = true,
+                    message = "Attach command sent for ${cleanSession.ifBlank { "default" }} (waiting remote output)"
                 )
             }
         }.onFailure { err ->
-            disconnect()
+            val (code, readable) = mapError(err)
+            disconnect(updateState = false)
             _state.update {
                 it.copy(
+                    host = cleanHost,
+                    sessionName = cleanSession,
+                    user = cleanUser,
                     connecting = false,
                     connected = false,
-                    message = "Connect failed (${user.trim()}@${host.trim()}): ${readableConnectError(err)}"
+                    phase = AttachPhase.Error,
+                    errorCode = code,
+                    canRetry = true,
+                    message = "Connect failed ($cleanUser@$cleanHost): $readable"
                 )
             }
         }
@@ -109,13 +173,15 @@ class SshAttachRepository(
     fun sendLine(line: String) {
         val target = shellInput
         if (target == null) {
-            _state.update { it.copy(message = "Not connected") }
+            _state.update { it.copy(message = "Not connected", canRetry = true) }
             return
         }
         scope.launch {
             runCatching {
-                target.write((line + "\n").toByteArray(StandardCharsets.UTF_8))
+                val payload = (line + "\n").toByteArray(StandardCharsets.UTF_8)
+                target.write(payload)
                 target.flush()
+                _state.update { it.copy(rawBytesOut = it.rawBytesOut + payload.size) }
             }.onFailure { err ->
                 _state.update { it.copy(message = "Send failed: ${err.message ?: err::class.simpleName}") }
             }
@@ -128,11 +194,12 @@ class SshAttachRepository(
             runCatching {
                 target.write(bytes)
                 target.flush()
+                _state.update { it.copy(rawBytesOut = it.rawBytesOut + bytes.size) }
             }
         }
     }
 
-    fun disconnect() {
+    fun disconnect(updateState: Boolean = true) {
         readJob?.cancel()
         readJob = null
         runCatching { shellInput?.close() }
@@ -141,7 +208,17 @@ class SshAttachRepository(
         shell = null
         runCatching { sshSession?.disconnect() }
         sshSession = null
-        _state.update { it.copy(connecting = false, connected = false) }
+        if (updateState) {
+            _state.update {
+                it.copy(
+                    connecting = false,
+                    connected = false,
+                    phase = AttachPhase.Disconnected,
+                    canRetry = true,
+                    message = "Detached"
+                )
+            }
+        }
     }
 
     fun close() {
@@ -162,10 +239,29 @@ class SshAttachRepository(
                 val chunk = String(buf, 0, n, StandardCharsets.UTF_8)
                 _state.update { st ->
                     val merged = (st.output + chunk).takeLast(120_000)
-                    st.copy(output = merged)
+                    val zellijMissing = chunk.contains("zellij not found", ignoreCase = true)
+                    val newMsg = if (zellijMissing) {
+                        "Failed to start zellij: not installed on remote host"
+                    } else {
+                        st.message
+                    }
+                    st.copy(
+                        output = merged,
+                        rawBytesIn = st.rawBytesIn + n,
+                        errorCode = if (zellijMissing) AttachErrorCode.ZellijMissing else st.errorCode,
+                        message = newMsg
+                    )
                 }
             }
-            _state.update { it.copy(connected = false, connecting = false, message = "Disconnected") }
+            _state.update {
+                it.copy(
+                    connected = false,
+                    connecting = false,
+                    phase = AttachPhase.Disconnected,
+                    canRetry = true,
+                    message = "Disconnected"
+                )
+            }
         }
     }
 
@@ -184,24 +280,25 @@ class SshAttachRepository(
             )
     }
 
-    private fun readableConnectError(err: Throwable): String {
+    private fun mapError(err: Throwable): Pair<AttachErrorCode, String> {
         val root = rootCause(err)
         return when (root) {
-            is UnknownHostException -> "host not found (DNS)"
-            is ConnectException -> "connection refused (port 22 unreachable)"
-            is NoRouteToHostException -> "no route to host"
-            is SocketTimeoutException -> "connection timeout"
+            is UnknownHostException -> AttachErrorCode.SshNetwork to "host not found (DNS)"
+            is ConnectException -> AttachErrorCode.SshNetwork to "connection refused (port 22 unreachable)"
+            is NoRouteToHostException -> AttachErrorCode.SshNetwork to "no route to host"
+            is SocketTimeoutException -> AttachErrorCode.Timeout to "connection timeout"
             is JSchException -> {
                 val msg = root.message?.lowercase().orEmpty()
                 when {
-                    "auth fail" in msg || "authentication failed" in msg -> "authentication failed (check user/password)"
-                    "timeout" in msg -> "connection timeout"
-                    "unknownhostexception" in msg -> "host not found (DNS)"
-                    "connection refused" in msg -> "connection refused (port 22 unreachable)"
-                    else -> root.message ?: "ssh error"
+                    "auth fail" in msg || "authentication failed" in msg ->
+                        AttachErrorCode.SshAuth to "authentication failed (check user/password)"
+                    "timeout" in msg -> AttachErrorCode.Timeout to "connection timeout"
+                    "unknownhostexception" in msg -> AttachErrorCode.SshNetwork to "host not found (DNS)"
+                    "connection refused" in msg -> AttachErrorCode.SshNetwork to "connection refused (port 22 unreachable)"
+                    else -> AttachErrorCode.Unknown to (root.message ?: "ssh error")
                 }
             }
-            else -> root.message ?: err.message ?: err::class.simpleName.orEmpty()
+            else -> AttachErrorCode.Unknown to (root.message ?: err.message ?: err::class.simpleName.orEmpty())
         }
     }
 

@@ -4,13 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.followcat.zagora.data.AttachState
 import com.followcat.zagora.data.SshAttachRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.nio.charset.StandardCharsets
 
 class AttachViewModel : ViewModel() {
     private val repo = SshAttachRepository()
     val state: StateFlow<AttachState> = repo.state
+    private val _sticky = MutableStateFlow(StickyModifiers())
+    val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
 
     fun connect(host: String, user: String, password: String, sessionName: String) {
         viewModelScope.launch {
@@ -22,74 +25,106 @@ class AttachViewModel : ViewModel() {
         repo.sendLine(line)
     }
 
-    fun sendCtrlC() {
-        repo.sendRaw(byteArrayOf(3))
+    fun setStickyCtrl(enabled: Boolean) {
+        _sticky.value = _sticky.value.copy(ctrl = enabled)
     }
 
-    fun sendCtrlChar(letter: Char) {
-        val upper = letter.uppercaseChar()
-        if (upper in 'A'..'Z') {
-            repo.sendRaw(byteArrayOf((upper.code - 64).toByte()))
+    fun setStickyAlt(enabled: Boolean) {
+        _sticky.value = _sticky.value.copy(alt = enabled)
+    }
+
+    fun toggleStickyCtrl() {
+        setStickyCtrl(!_sticky.value.ctrl)
+    }
+
+    fun toggleStickyAlt() {
+        setStickyAlt(!_sticky.value.alt)
+    }
+
+    fun clearSticky() {
+        _sticky.value = StickyModifiers()
+    }
+
+    fun sendKey(action: TerminalKeyAction) {
+        when (action) {
+            is TerminalKeyAction.Text -> {
+                val stickyNow = _sticky.value
+                val bytes = TerminalKeyMapper.applySticky(action.value, stickyNow)
+                if (bytes.isNotEmpty()) repo.sendRaw(bytes)
+                if (stickyNow.ctrl || stickyNow.alt) clearSticky()
+            }
+            else -> {
+                val bytes = TerminalKeyMapper.encode(action)
+                if (bytes.isNotEmpty()) repo.sendRaw(bytes)
+            }
         }
     }
 
+    fun sendCtrlC() {
+        sendKey(TerminalKeyAction.CtrlC)
+    }
+
+    fun sendCtrlChar(letter: Char) {
+        sendKey(TerminalKeyAction.Ctrl(letter))
+    }
+
     fun sendEscape() {
-        repo.sendRaw(byteArrayOf(0x1B))
+        sendKey(TerminalKeyAction.Escape)
     }
 
     fun sendTab() {
-        repo.sendRaw(byteArrayOf('\t'.code.toByte()))
+        sendKey(TerminalKeyAction.Tab)
     }
 
     fun sendShiftTab() {
-        repo.sendRaw("\u001B[Z".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.ShiftTab)
     }
 
     fun sendArrowUp() {
-        repo.sendRaw("\u001B[A".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.ArrowUp)
     }
 
     fun sendArrowDown() {
-        repo.sendRaw("\u001B[B".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.ArrowDown)
     }
 
     fun sendArrowRight() {
-        repo.sendRaw("\u001B[C".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.ArrowRight)
     }
 
     fun sendArrowLeft() {
-        repo.sendRaw("\u001B[D".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.ArrowLeft)
     }
 
     fun sendAltChar(letter: Char) {
-        repo.sendRaw(byteArrayOf(0x1B, letter.code.toByte()))
+        sendKey(TerminalKeyAction.Alt(letter))
     }
 
     fun sendTextRaw(text: String) {
         if (text.isNotEmpty()) {
-            repo.sendRaw(text.toByteArray(StandardCharsets.UTF_8))
+            sendKey(TerminalKeyAction.Text(text))
         }
     }
 
     fun sendPageUp() {
-        repo.sendRaw("\u001B[5~".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.PageUp)
     }
 
     fun sendPageDown() {
-        repo.sendRaw("\u001B[6~".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.PageDown)
     }
 
     fun sendHome() {
-        repo.sendRaw("\u001B[H".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.Home)
     }
 
     fun sendEnd() {
-        repo.sendRaw("\u001B[F".toByteArray(StandardCharsets.UTF_8))
+        sendKey(TerminalKeyAction.End)
     }
 
     fun pasteRaw(text: String) {
         if (text.isNotEmpty()) {
-            repo.sendRaw(text.toByteArray(StandardCharsets.UTF_8))
+            sendKey(TerminalKeyAction.Text(text))
         }
     }
 
