@@ -10,6 +10,7 @@
 `tests/` contains unit tests (`test_commands.py`, `test_server.py`, `test_config.py`) built with `unittest`.  
 `install.sh` is the end-user installer script.  
 `pyproject.toml` defines packaging metadata and the `zagora` console script.
+`mobile/android/` is an Android MVP controller app (Compose + Retrofit).
 
 ## Build, Test, and Development Commands
 - `python -m venv .venv && source .venv/bin/activate`: create and activate a local dev environment.
@@ -17,6 +18,8 @@
 - `python -m unittest discover -s tests -v`: run the full test suite.
 - `python -m unittest tests.test_server -v`: run one test module during iteration.
 - `python -m zagora --help`: verify CLI entrypoint and available commands.
+- `cd mobile/android && bash scripts/verify_android_env.sh`: verify Android local build prerequisites.
+- `cd mobile/android && gradle :app:assembleDebug`: build Android debug APK (JDK 17 + SDK required).
 
 ## Coding Style & Naming Conventions
 - Follow PEP 8 with 4-space indentation and clear, small functions.
