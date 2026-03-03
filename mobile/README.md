@@ -30,3 +30,8 @@
 
 - Web 反馈快，适合高频 UI/交互调整。
 - Android 更接近最终使用环境，适合发布前验证。
+
+## App 内 Shell（zellij attach）研发入口
+
+- Android 端技术方案文档：`mobile/android/IN_APP_ATTACH_RESEARCH.md`
+- 建议流程：先完成 P0（App 内 attach 可用），再进入 P1（复制粘贴/快捷键/重连体验）。

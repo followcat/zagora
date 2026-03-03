@@ -6,10 +6,18 @@
 - 从 `zagora` 服务端读取会话（`GET /sessions`）
 - 从 registry 删除会话（`DELETE /sessions/{name}?host=...`）
 - 通过 Android Intent 跳转外部 SSH 客户端（`ssh://host`）
+- App 内 Attach（P0）：通过 SSH + PTY 连接并执行 `zellij attach <session>`
 
 当前不包含：
-- App 内嵌终端渲染
+- 完整终端高级交互（快捷键栏/粘贴板增强/重连策略）
 - 在手机上直接执行 `zagora open/sync/refresh` 全流程
+
+## App 内 Attach 研究
+
+已提供实现方案与分阶段计划：
+- `mobile/android/IN_APP_ATTACH_RESEARCH.md`
+
+建议按文档中的 P0 -> P1 里程碑推进，先做“可用 attach”，再补体验细节（复制/快捷键/重连）。
 
 ## 运行
 
@@ -52,6 +60,33 @@ bash scripts/verify_android_env.sh
 4. 点击 **Load Sessions**
 
 可在每个会话卡片点击 **Open SSH** 跳转外部 SSH 客户端。
+
+## App 内 Attach（P0）使用
+
+1. 在会话卡片点击 **Attach**
+2. 输入 SSH 用户名（和目标机一致），必要时输入密码
+3. 点击 **Connect + Attach**
+4. 连接成功后会自动执行 `zellij attach <session>`
+5. 下方输入框可发送命令，`Ctrl+C` 可中断当前命令
+
+说明：
+- 该版本为 P0，可用性优先；高级终端体验（快捷键栏、粘贴板增强）会在后续 P1 完成。
+- 仍保留 **Open SSH** 作为回退路径。
+
+## Attach 快捷键与触摸操作（当前版本）
+
+在 Attach 页面已内置快捷操作栏：
+- `Ctrl`: `Ctrl+A / Ctrl+D / Ctrl+L / Ctrl+Z / Ctrl+C`
+- `Alt`: `Alt+B / Alt+F / Alt+D`
+- `Shift`: `Shift+Tab`
+- 其他常用键：`Esc / Tab / Up / Down / Left / Right`
+- 剪贴板：`Copy`（复制输出区内容）、`Paste`（粘贴到命令输入框）、`Paste->Shell`（直接发送到远端 shell）
+
+触摸与滚屏优化：
+- 输出区支持 **文本选择复制**（长按选择）
+- 支持 **纵向滚动 + 横向滚动**（查看长命令行）
+- 提供 `Top / Bottom` 快速跳转
+- `Follow: ON/OFF` 可切换“是否自动跟随最新输出”
 
 ## 通过 Wi-Fi 安装到手机（Debug）
 
