@@ -8,15 +8,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,9 +27,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -132,9 +127,6 @@ fun ZagoraApp(
     var screen by remember { mutableStateOf(MobileScreen.Sessions) }
     var attachTarget by remember { mutableStateOf<Session?>(null) }
 
-    val ok = MaterialTheme.colorScheme.primary
-    val warn = MaterialTheme.colorScheme.tertiary
-
     LaunchedEffect(reconnectPolicy) {
         attachVm.setReconnectPolicy(reconnectPolicy)
     }
@@ -229,9 +221,7 @@ fun ZagoraApp(
                     attachTarget = session
                 },
                 onOpenSsh = { session -> openInExternalSshApp(ctx, session.host, sshUser) },
-                onDelete = { session -> vm.deleteSession(server, token, session) },
-                okColor = ok,
-                warnColor = warn
+                onDelete = { session -> vm.deleteSession(server, token, session) }
             )
             MobileScreen.Settings -> SettingsScreen(
                 server = server,
@@ -274,9 +264,7 @@ private fun SessionsScreen(
     onCreateSession: (name: String, host: String) -> Unit,
     onAttachSession: (Session) -> Unit,
     onOpenSsh: (Session) -> Unit,
-    onDelete: (Session) -> Unit,
-    okColor: Color,
-    warnColor: Color
+    onDelete: (Session) -> Unit
 ) {
     val clipboard = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -361,7 +349,7 @@ private fun SessionsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 if (!serverConfigured) {
                     item {
@@ -402,8 +390,6 @@ private fun SessionsScreen(
                 items(sessions) { session ->
                     SessionRow(
                         session = session,
-                        okColor = okColor,
-                        warnColor = warnColor,
                         onAttach = { onAttachSession(session) },
                         onOpenSsh = { onOpenSsh(session) },
                         onDelete = { onDelete(session) },
@@ -510,7 +496,11 @@ private fun SettingsScreen(
                 ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Text("←", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             )
@@ -557,7 +547,8 @@ private fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        FilledTonalButton(
+                        CompactTonalButton(
+                            text = if (testingConnection) "Testing..." else "Test Connection",
                             onClick = {
                                 scope.launch {
                                     if (localServer.isBlank()) {
@@ -572,11 +563,8 @@ private fun SettingsScreen(
                                     )
                                 }
                             },
-                            enabled = !testingConnection,
-                            colors = zagoraTonalButtonColors()
-                        ) {
-                            Text(if (testingConnection) "Testing..." else "Test Connection")
-                        }
+                            enabled = !testingConnection
+                        )
                     }
                 }
             }
@@ -610,14 +598,14 @@ private fun SettingsScreen(
                         supportingContent = { Text("${localFont.toInt()}sp", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         trailingContent = {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                FilledTonalButton(
+                                CompactTonalButton(
+                                    text = "A-",
                                     onClick = { localFont = (localFont - 1f).coerceAtLeast(11f) },
-                                    colors = zagoraTonalButtonColors()
-                                ) { Text("A-") }
-                                FilledTonalButton(
+                                )
+                                CompactTonalButton(
+                                    text = "A+",
                                     onClick = { localFont = (localFont + 1f).coerceAtMost(18f) },
-                                    colors = zagoraTonalButtonColors()
-                                ) { Text("A+") }
+                                )
                             }
                         }
                     )
@@ -703,8 +691,6 @@ private suspend fun probeHealth(baseUrl: String, token: String): Pair<Boolean, S
 @Composable
 private fun SessionRow(
     session: Session,
-    okColor: Color,
-    warnColor: Color,
     onAttach: () -> Unit,
     onOpenSsh: () -> Unit,
     onDelete: () -> Unit,
@@ -713,7 +699,11 @@ private fun SessionRow(
     var menuExpanded by remember(session.host, session.name) { mutableStateOf(false) }
     var showDeleteConfirm by remember(session.host, session.name) { mutableStateOf(false) }
 
-    val statusColor = if (session.status.equals("running", ignoreCase = true)) okColor else warnColor
+    val statusColor = if (session.status.equals("running", ignoreCase = true)) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.tertiary
+    }
     val statusText = session.status.ifBlank { "unknown" }
     val seenAgo = session.lastSeen?.takeIf { it.isNotBlank() }?.let { " · ${_shortLabelTime(it)}" }.orEmpty()
 
@@ -748,39 +738,50 @@ private fun SessionRow(
                 }
             },
             trailingContent = {
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Session actions",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Open SSH") },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenSsh()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Copy") },
-                            onClick = {
-                                menuExpanded = false
-                                onCopy()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Remove") },
-                            onClick = {
-                                menuExpanded = false
-                                showDeleteConfirm = true
-                            }
-                        )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    CompactFilledButton(
+                        text = "Attach",
+                        onClick = onAttach,
+                        enabled = true,
+                        heightDp = 32
+                    )
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Session actions",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Open SSH") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onOpenSsh()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Copy") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onCopy()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Remove") },
+                                onClick = {
+                                    menuExpanded = false
+                                    showDeleteConfirm = true
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1367,11 +1368,14 @@ private fun AttachScreen(
 private fun CompactFilledButton(
     text: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
+    heightDp: Int = 40,
     modifier: Modifier = Modifier
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(40.dp),
+        enabled = enabled,
+        modifier = modifier.height(heightDp.dp),
         shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         colors = zagoraPrimaryButtonColors()
@@ -1384,11 +1388,14 @@ private fun CompactFilledButton(
 private fun CompactTonalButton(
     text: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
+    heightDp: Int = 40,
     modifier: Modifier = Modifier
 ) {
     FilledTonalButton(
         onClick = onClick,
-        modifier = modifier.height(40.dp),
+        enabled = enabled,
+        modifier = modifier.height(heightDp.dp),
         shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         colors = zagoraTonalButtonColors()
