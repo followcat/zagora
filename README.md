@@ -66,6 +66,24 @@ curl -fsSL https://raw.githubusercontent.com/followcat/zagora/main/install.sh | 
 pip install -e .
 ```
 
+## 移动端（Android）
+
+仓库内包含 Android 控制器（Compose + Retrofit + JSch），目录：
+
+- `mobile/android/`
+
+能力概览：
+
+- 会话列表 / 创建会话记录
+- App 内 SSH Attach（`zellij attach -c <session>`）
+- Remove 等价移动端 kill（先远端 kill-session，再删 registry）
+- 自动重连（`manual` / `auto3`）
+- 终端快捷键栏、字体包与主题切换
+
+详细构建、Wi‑Fi 调试和使用说明见：
+
+- [mobile/android/README.md](mobile/android/README.md)
+
 ## Shell 自动补全（Tab completion）
 
 zagora 内置生成补全脚本：
