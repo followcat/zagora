@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -340,11 +341,26 @@ private fun SessionsScreen(
                                 )
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = onSave, colors = zagoraTonalButtonColors()) { Text("Save") }
-                            Button(onClick = onLoad, colors = zagoraPrimaryButtonColors()) { Text("Load Sessions") }
-                            FilledTonalButton(onClick = onGoSettings, colors = zagoraTonalButtonColors()) { Text("Settings") }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = onSave,
+                                colors = zagoraTonalButtonColors(),
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Save") }
+                            Button(
+                                onClick = onLoad,
+                                colors = zagoraPrimaryButtonColors(),
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Load Sessions") }
                         }
+                        FilledTonalButton(
+                            onClick = onGoSettings,
+                            colors = zagoraTonalButtonColors(),
+                            modifier = Modifier.width(132.dp)
+                        ) { Text("Settings") }
                     }
                 }
             }
