@@ -308,19 +308,37 @@ def _transport(args: argparse.Namespace) -> str:
     return getattr(args, "transport", "auto")
 
 
+def _x11_enabled(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "x11", False))
+
+
+def _require_transport_cmds(args: argparse.Namespace) -> None:
+    t = _transport(args)
+    if t == "tailscale":
+        require_cmd("tailscale")
+        return
+    if t == "ssh":
+        require_cmd("ssh")
+        return
+    require_cmd("tailscale")
+    require_cmd("ssh")
+
+
 def _run_remote_capture(args: argparse.Namespace, host: str, remote_argv: list[str]):
     t = _transport(args)
     cp = _ssh_control_persist(args)
     if t == "ssh":
         return run_capture(ssh_via_tailscale(host, remote_argv, control_persist=cp))
     if t == "tailscale":
-        p = run_capture(tailscale_ssh(host, remote_argv))
-        if p.returncode != 0 and _tailscale_rejects_y(p.stderr):
+        x11 = _x11_enabled(args)
+        p = run_capture(tailscale_ssh(host, remote_argv, x11=x11))
+        if x11 and p.returncode != 0 and _tailscale_rejects_y(p.stderr):
             return run_capture(ssh_via_tailscale(host, remote_argv, control_persist=cp))
         return p
 
-    p = run_capture(tailscale_ssh(host, remote_argv))
-    if p.returncode != 0 and (_hostkey_problem(p.stderr) or _tailscale_rejects_y(p.stderr)):
+    x11 = _x11_enabled(args)
+    p = run_capture(tailscale_ssh(host, remote_argv, x11=x11))
+    if p.returncode != 0 and (_hostkey_problem(p.stderr) or (x11 and _tailscale_rejects_y(p.stderr))):
         return run_capture(ssh_via_tailscale(host, remote_argv, control_persist=cp))
     return p
 
@@ -348,31 +366,33 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
         return 0
 
     t = _transport(args)
+    x11 = _x11_enabled(args)
     if t == "ssh":
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=x11, control_persist=cp))
     if t == "tailscale":
-        try:
-            pre = subprocess.run(
-                tailscale_ssh(host, ["true"]),
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except subprocess.TimeoutExpired:
-            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
+        if x11:
+            try:
+                pre = subprocess.run(
+                    tailscale_ssh(host, ["true"], x11=True),
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except subprocess.TimeoutExpired:
+                return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
 
-        if pre.returncode == 0:
-            return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
-        if _tailscale_rejects_y(pre.stderr):
-            sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
-            return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
-        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
+            if pre.returncode == 0:
+                return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
+            if _tailscale_rejects_y(pre.stderr):
+                sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
+                return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
+        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=x11))
 
     # auto: quick preflight to detect host-key issues (no password prompt)
     try:
         pre = subprocess.run(
-            tailscale_ssh(host, ["true"]),
+            tailscale_ssh(host, ["true"], x11=x11),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
@@ -380,19 +400,19 @@ def _exec_remote_interactive(args: argparse.Namespace, host: str, remote_argv: l
         )
     except subprocess.TimeoutExpired:
         # tailscale ssh hung (probably waiting for something); fall back
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=x11, control_persist=cp))
 
     if pre.returncode == 0:
-        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=True))
-    if _tailscale_rejects_y(pre.stderr):
+        return _run_or_exec(tailscale_ssh(host, remote_argv, tty=True, x11=x11))
+    if x11 and _tailscale_rejects_y(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh does not support -Y; falling back to system ssh\n")
         return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
     if _hostkey_problem(pre.stderr):
         sys.stderr.write("zagora: tailscale ssh host key unavailable; falling back to system ssh\n")
-        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
+        return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=x11, control_persist=cp))
 
     # other failure (e.g. host unreachable) — still try ssh fallback
-    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=True, control_persist=cp))
+    return _run_or_exec(ssh_via_tailscale(host, remote_argv, tty=True, x11=x11, control_persist=cp))
 
 
 def _parse_zellij_ls_names(output: str) -> list[str]:
@@ -772,7 +792,7 @@ def cmd_completion(args: argparse.Namespace) -> int:
     shell = args.shell
 
     subs = "serve open attach a ls kill sync refresh update doctor install-zellij interactive i completion".split()
-    global_opts = "--host --token --transport --ssh-control-persist".split()
+    global_opts = "--host --token --transport --ssh-control-persist --x11".split()
 
     # Per-subcommand options (short + long)
     opts: dict[str, list[str]] = {
@@ -818,7 +838,7 @@ _zagora_complete() {{
   cmd=\"\"
   for w in \"${{COMP_WORDS[@]:1}}\"; do
     case \"$w\" in
-      --host|--token|--transport) continue ;;
+      --host|--token|--transport|--x11) continue ;;
       --*) continue ;;
       -*) continue ;;
       *) cmd=\"$w\"; break ;;
@@ -892,8 +912,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def cmd_open(args: argparse.Namespace) -> int:
-    require_cmd("tailscale")
-    require_cmd("ssh")
+    _require_transport_cmds(args)
     server = _server_or_exit(args)
     token = _token(args)
     target = _connect_or_exit(args)
@@ -938,8 +957,7 @@ def cmd_open(args: argparse.Namespace) -> int:
 
 
 def cmd_attach(args: argparse.Namespace) -> int:
-    require_cmd("tailscale")
-    require_cmd("ssh")
+    _require_transport_cmds(args)
     server = _server_or_exit(args)
     token = _token(args)
     name = _resolve_name_arg(args)
@@ -1000,8 +1018,7 @@ def cmd_ls(args: argparse.Namespace) -> int:
 
 
 def cmd_kill(args: argparse.Namespace) -> int:
-    require_cmd("tailscale")
-    require_cmd("ssh")
+    _require_transport_cmds(args)
     server = _server_or_exit(args)
     token = _token(args)
     name = _normalize_session_name(args.name)
@@ -1046,8 +1063,7 @@ def cmd_kill(args: argparse.Namespace) -> int:
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
-    require_cmd("tailscale")
-    require_cmd("ssh")
+    _require_transport_cmds(args)
     server = _server_or_exit(args)
     token = _token(args)
     target = _connect_or_exit(args)
@@ -1191,8 +1207,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 
 def cmd_refresh(args: argparse.Namespace) -> int:
-    require_cmd("tailscale")
-    require_cmd("ssh")
+    _require_transport_cmds(args)
     server = _server_or_exit(args)
     token = _token(args)
     host_filter = getattr(args, "connect", None)
@@ -1471,8 +1486,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_install_zellij(args: argparse.Namespace) -> int:
-    require_cmd("tailscale")
-    require_cmd("ssh")
+    _require_transport_cmds(args)
     target = _connect_or_exit(args)
 
     install_dir = args.dir.replace("~", "$HOME", 1)
@@ -1513,6 +1527,12 @@ def _add_common(sub: argparse.ArgumentParser) -> None:
         help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
     )
     sub.add_argument(
+        "--x11",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="enable X11 forwarding (-Y); default is off",
+    )
+    sub.add_argument(
         "--no-color",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -1537,6 +1557,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--ssh-control-persist",
         help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
     )
+    p.add_argument("--x11", action="store_true", help="enable X11 forwarding (-Y); default is off")
     p.add_argument("--no-color", action="store_true", help="disable colored CLI output")
 
     sp = p.add_subparsers(dest="cmd")
@@ -1677,6 +1698,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="SSH password/connection cache window (e.g. 120, 10m, 1h, off)",
     )
+    p_inst.add_argument(
+        "--x11",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="enable X11 forwarding (-Y); default is off",
+    )
     p_inst.add_argument("--dir", default="~/.local/bin", help="install dir (default: ~/.local/bin)")
     p_inst.set_defaults(func=cmd_install_zellij)
 
@@ -1693,6 +1720,8 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         base += ["--transport", str(args.transport)]
     if getattr(args, "ssh_control_persist", None):
         base += ["--ssh-control-persist", str(args.ssh_control_persist)]
+    if getattr(args, "x11", None):
+        base += ["--x11"]
     if getattr(args, "no_color", None):
         base += ["--no-color"]
 
@@ -1734,11 +1763,11 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
         ]
         repl_opts: dict[str, list[str]] = {
             "ls": ["-c", "--connect"],
-            "open": ["-c", "--connect", "-n", "--name"],
-            "attach": ["-c", "--connect", "-n", "--name"],
-            "a": ["-c", "--connect", "-n", "--name"],
-            "kill": ["-c", "--connect", "-n", "--name"],
-            "sync": ["-c", "--connect"],
+            "open": ["-c", "--connect", "-n", "--name", "--x11"],
+            "attach": ["-c", "--connect", "-n", "--name", "--x11"],
+            "a": ["-c", "--connect", "-n", "--name", "--x11"],
+            "kill": ["-c", "--connect", "-n", "--name", "--x11"],
+            "sync": ["-c", "--connect", "--x11"],
             "refresh": [
                 "-c",
                 "--connect",
@@ -1747,10 +1776,11 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
                 "--no-prune",
                 "--no-prune-unreachable",
                 "--dry-run",
+                "--x11",
             ],
             "update": ["--repo", "--ref", "--zip-url", "--force", "-q", "--quiet"],
             "doctor": [],
-            "install-zellij": ["-c", "--connect", "--transport", "--ssh-control-persist", "--dir"],
+            "install-zellij": ["-c", "--connect", "--transport", "--ssh-control-persist", "--dir", "--x11"],
         }
 
         def _repl_complete(text: str, state: int):

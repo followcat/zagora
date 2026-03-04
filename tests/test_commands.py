@@ -68,7 +68,7 @@ class TestCommands(unittest.TestCase):
             self.assertTrue(exec_mock.called)
 
     def test_run_remote_capture_falls_back_when_tailscale_rejects_y(self):
-        args = argparse.Namespace(transport="auto")
+        args = argparse.Namespace(transport="auto", x11=True)
         runs = [
             subprocess.CompletedProcess(
                 args=["tailscale", "ssh"], returncode=2, stdout="", stderr="flag provided but not defined: -Y"
@@ -81,7 +81,7 @@ class TestCommands(unittest.TestCase):
             self.assertEqual(run_mock.call_args_list[1].args[0][0], "ssh")
 
     def test_exec_remote_interactive_falls_back_when_tailscale_rejects_y(self):
-        args = argparse.Namespace(transport="tailscale")
+        args = argparse.Namespace(transport="tailscale", x11=True)
         pre = subprocess.CompletedProcess(
             args=["tailscale", "ssh"], returncode=2, stdout="", stderr="flag provided but not defined: -Y"
         )
@@ -89,6 +89,26 @@ class TestCommands(unittest.TestCase):
             rc = cli._exec_remote_interactive(args, "C", ["zellij", "attach", "Work"])
             self.assertEqual(rc, 0)
             self.assertEqual(exec_mock.call_args.args[0][0], "ssh")
+
+    def test_require_transport_cmds_tailscale(self):
+        args = argparse.Namespace(transport="tailscale")
+        with patch("zagora.cli.require_cmd") as req:
+            cli._require_transport_cmds(args)
+            req.assert_called_once_with("tailscale")
+
+    def test_require_transport_cmds_ssh(self):
+        args = argparse.Namespace(transport="ssh")
+        with patch("zagora.cli.require_cmd") as req:
+            cli._require_transport_cmds(args)
+            req.assert_called_once_with("ssh")
+
+    def test_require_transport_cmds_auto(self):
+        args = argparse.Namespace(transport="auto")
+        with patch("zagora.cli.require_cmd") as req:
+            cli._require_transport_cmds(args)
+            self.assertEqual(req.call_count, 2)
+            self.assertEqual(req.call_args_list[0].args[0], "tailscale")
+            self.assertEqual(req.call_args_list[1].args[0], "ssh")
 
     def test_normalize_server_url_defaults(self):
         self.assertEqual(cli._normalize_server_url("t14"), "http://t14:9876")
