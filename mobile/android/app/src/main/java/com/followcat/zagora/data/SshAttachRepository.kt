@@ -78,6 +78,14 @@ class SshAttachRepository(
     private var reconnectJob: Job? = null
     private var reconnectPolicy: String = "manual"
     private var manualDisconnect = false
+    @Volatile
+    private var ptyCols: Int = 180
+    @Volatile
+    private var ptyRows: Int = 48
+    @Volatile
+    private var ptyPixelWidth: Int = 0
+    @Volatile
+    private var ptyPixelHeight: Int = 0
     private var lastHost: String = ""
     private var lastUser: String = ""
     private var lastPassword: String = ""
@@ -85,6 +93,22 @@ class SshAttachRepository(
 
     fun setReconnectPolicy(policy: String) {
         reconnectPolicy = policy
+    }
+
+    fun resizePty(cols: Int, rows: Int, pixelWidth: Int = 0, pixelHeight: Int = 0) {
+        val safeCols = cols.coerceAtLeast(8)
+        val safeRows = rows.coerceAtLeast(4)
+        ptyCols = safeCols
+        ptyRows = safeRows
+        ptyPixelWidth = pixelWidth.coerceAtLeast(0)
+        ptyPixelHeight = pixelHeight.coerceAtLeast(0)
+
+        val channel = shell
+        if (channel != null && channel.isConnected) {
+            runCatching {
+                channel.setPtySize(ptyCols, ptyRows, ptyPixelWidth, ptyPixelHeight)
+            }
+        }
     }
 
     suspend fun connect(host: String, user: String, password: String, sessionName: String, isReconnect: Boolean = false) {
@@ -141,7 +165,7 @@ class SshAttachRepository(
                 session.connect(10_000)
 
                 val channel = session.openChannel("shell") as ChannelShell
-                channel.setPtyType("xterm-256color", 180, 48, 0, 0)
+                channel.setPtyType("xterm-256color", ptyCols, ptyRows, ptyPixelWidth, ptyPixelHeight)
                 channel.connect(10_000)
 
                 sshSession = session
@@ -260,8 +284,8 @@ class SshAttachRepository(
                 if (n <= 0) {
                     break
                 }
-                val chunk = String(buf, 0, n, StandardCharsets.UTF_8)
                 _state.update { st ->
+                    val chunk = String(buf, 0, n, StandardCharsets.UTF_8)
                     val merged = (st.output + chunk).takeLast(120_000)
                     val zellijMissing = chunk.contains("zellij not found", ignoreCase = true)
                     val newMsg = if (zellijMissing) {
@@ -337,12 +361,14 @@ class SshAttachRepository(
     }
 
     private fun buildAttachCommand(sessionName: String): String {
-        val qName = shellEscape(sessionName)
+        val cleanName = sessionName.trim()
+        val qName = shellEscape(cleanName)
+        val attachCmd = if (cleanName.isBlank()) "\"\$_zg_bin\" attach" else "\"\$_zg_bin\" attach -c $qName"
         return (
             "if command -v zellij >/dev/null 2>&1; then _zg_bin=zellij; " +
                 "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then _zg_bin=\"\$HOME/.local/bin/zellij\"; " +
                 "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; unset _zg_bin; fi; " +
-                "if [ -n \"\$_zg_bin\" ]; then \"\$_zg_bin\" attach $qName || \"\$_zg_bin\" attach; fi"
+                "if [ -n \"\$_zg_bin\" ]; then $attachCmd; fi"
             )
     }
 

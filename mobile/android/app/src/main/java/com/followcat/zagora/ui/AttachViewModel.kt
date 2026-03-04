@@ -21,6 +21,10 @@ class AttachViewModel : ViewModel() {
         repo.setReconnectPolicy(policy)
     }
 
+    fun resizeTerminal(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) {
+        repo.resizePty(cols = cols, rows = rows, pixelWidth = pixelWidth, pixelHeight = pixelHeight)
+    }
+
     fun connect(host: String, user: String, password: String, sessionName: String) {
         lastConnectParams = ConnectParams(host = host, user = user, password = password, sessionName = sessionName)
         resumeAfterBackground = false
