@@ -1,6 +1,7 @@
 package com.followcat.zagora.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -74,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -297,7 +299,7 @@ private fun SessionsScreen(
             TopAppBar(
                 title = { Text("Sessions") },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                     actionIconContentColor = MaterialTheme.colorScheme.onSurface
@@ -348,15 +350,17 @@ private fun SessionsScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .background(zagoraScreenBrush())
+                    .padding(horizontal = ZagoraSpacing.page, vertical = ZagoraSpacing.item),
+                verticalArrangement = Arrangement.spacedBy(ZagoraSpacing.compact)
             ) {
                 if (!serverConfigured) {
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                            shape = RoundedCornerShape(ZagoraRadius.card),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("未配置 server，请先去 Settings。", color = MaterialTheme.colorScheme.onSurface)
@@ -380,8 +384,8 @@ private fun SessionsScreen(
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface
+                            shape = RoundedCornerShape(ZagoraRadius.card),
+                            color = MaterialTheme.colorScheme.surfaceContainer
                         ) {
                             Text("No sessions", modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -489,7 +493,7 @@ private fun SettingsScreen(
             TopAppBar(
                 title = { Text("Settings") },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                     actionIconContentColor = MaterialTheme.colorScheme.onSurface
@@ -510,14 +514,16 @@ private fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(zagoraScreenBrush())
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(ZagoraSpacing.page),
+            verticalArrangement = Arrangement.spacedBy(ZagoraSpacing.page)
         ) {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(ZagoraRadius.card),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Server", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
@@ -571,7 +577,8 @@ private fun SettingsScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(ZagoraRadius.card),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("SSH", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
@@ -588,7 +595,8 @@ private fun SettingsScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(ZagoraRadius.card),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Terminal", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
@@ -625,7 +633,8 @@ private fun SettingsScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                shape = RoundedCornerShape(ZagoraRadius.card),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Connection", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
@@ -651,7 +660,7 @@ private fun SettingsScreen(
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(ZagoraRadius.card),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
             ) {
                 Text(
@@ -711,8 +720,10 @@ private fun SessionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onAttach),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface
+        shape = RoundedCornerShape(ZagoraRadius.card),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.40f)),
+        tonalElevation = 1.dp
     ) {
         ListItem(
             colors = zagoraListItemColors(),
@@ -1001,7 +1012,7 @@ private fun AttachScreen(
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     titleContentColor = MaterialTheme.colorScheme.onSurface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                     actionIconContentColor = MaterialTheme.colorScheme.onSurface
@@ -1116,7 +1127,7 @@ private fun AttachScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
+                .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 SelectionContainer {
@@ -1199,9 +1210,10 @@ private fun AttachScreen(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(16.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                        .padding(ZagoraSpacing.page),
+                    shape = RoundedCornerShape(ZagoraRadius.card),
+                    color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
@@ -1376,7 +1388,7 @@ private fun CompactFilledButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.height(heightDp.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(ZagoraRadius.field),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         colors = zagoraPrimaryButtonColors()
     ) {
@@ -1396,7 +1408,7 @@ private fun CompactTonalButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.height(heightDp.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(ZagoraRadius.field),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
         colors = zagoraTonalButtonColors()
     ) {
@@ -1421,7 +1433,7 @@ private fun KeyPill(
         modifier = Modifier
             .height(38.dp)
             .clickable(enabled = enabled, onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(ZagoraRadius.field),
         color = bg
     ) {
         Box(
@@ -1466,14 +1478,21 @@ private fun terminalColorPalette(): TerminalColorPalette = TerminalColorPalette(
 )
 
 @Composable
+private fun zagoraScreenBrush(): Brush = Brush.verticalGradient(
+    0f to MaterialTheme.colorScheme.background,
+    0.45f to MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+    1f to MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f)
+)
+
+@Composable
 private fun zagoraFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = MaterialTheme.colorScheme.onSurface,
     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-    focusedContainerColor = MaterialTheme.colorScheme.surface,
-    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
     cursorColor = MaterialTheme.colorScheme.primary,
     focusedBorderColor = MaterialTheme.colorScheme.primary,
-    unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.75f),
     focusedLabelColor = MaterialTheme.colorScheme.primary,
     unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
