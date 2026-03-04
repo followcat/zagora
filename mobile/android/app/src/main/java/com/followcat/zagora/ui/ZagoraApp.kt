@@ -20,6 +20,8 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -63,6 +65,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class MobileScreen {
@@ -538,6 +541,7 @@ private fun StatusBadge(text: String, bg: Color) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AttachScreen(
     target: Session,
@@ -575,6 +579,7 @@ private fun AttachScreen(
     var menuExpanded by remember(target.host, target.name) { mutableStateOf(false) }
     var followOutput by remember(target.host, target.name) { mutableStateOf(true) }
     var selectionMode by remember(target.host, target.name) { mutableStateOf(false) }
+    var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
     val outputScroll = rememberScrollState()
     val outputXScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
@@ -602,6 +607,12 @@ private fun AttachScreen(
     LaunchedEffect(attachState.output, followOutput) {
         if (followOutput) {
             outputScroll.scrollTo(outputScroll.maxValue)
+        }
+    }
+    LaunchedEffect(showGestureHint) {
+        if (showGestureHint) {
+            delay(2500)
+            showGestureHint = false
         }
     }
     val connState = remember(attachState.phase, attachState.message) {
@@ -646,7 +657,7 @@ private fun AttachScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -740,11 +751,18 @@ private fun AttachScreen(
                     SelectionContainer {
                         Text(
                             text = terminalAnnotated,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(outputScroll)
-                                .horizontalScroll(outputXScroll)
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .combinedClickable(
+                                onClick = { showGestureHint = false },
+                                onLongClick = {
+                                    selectionMode = true
+                                    showGestureHint = false
+                                }
+                            )
+                            .verticalScroll(outputScroll)
+                            .horizontalScroll(outputXScroll)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                             color = Color(0xFFE2E8F0),
                             fontFamily = FontFamily.Monospace,
                             fontSize = terminalFontSize.sp,
@@ -768,6 +786,23 @@ private fun AttachScreen(
                     color = Color(0xFFCBD5E1),
                     style = MaterialTheme.typography.labelSmall
                 )
+            }
+
+            if (showGestureHint) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = if (extraKeysVisible) 70.dp else 12.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color(0xFF0B1220).copy(alpha = 0.85f)
+                ) {
+                    Text(
+                        text = "Tap to focus · Long press to select",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        color = Color(0xFFCBD5E1),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
 
             if (terminalState.conn is ConnState.Connecting || terminalState.conn is ConnState.Reconnecting) {
@@ -814,6 +849,7 @@ private fun AttachScreen(
     }
 
     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+        DropdownMenuItem(text = { Text("Session") }, enabled = false, onClick = {})
         DropdownMenuItem(
             text = { Text(if (showSessionDrawer) "Hide Session Form" else "Session Form") },
             onClick = {
@@ -821,6 +857,7 @@ private fun AttachScreen(
                 menuExpanded = false
             }
         )
+        DropdownMenuItem(text = { Text("Terminal") }, enabled = false, onClick = {})
         DropdownMenuItem(
             text = { Text(if (followOutput) "Follow: ON" else "Follow: OFF") },
             onClick = {
@@ -849,6 +886,7 @@ private fun AttachScreen(
                 menuExpanded = false
             }
         )
+        DropdownMenuItem(text = { Text("Control") }, enabled = false, onClick = {})
         DropdownMenuItem(
             text = { Text("Send Ctrl+C") },
             onClick = {
@@ -856,6 +894,7 @@ private fun AttachScreen(
                 menuExpanded = false
             }
         )
+        DropdownMenuItem(text = { Text("Connection") }, enabled = false, onClick = {})
         DropdownMenuItem(
             text = { Text("Reconnect") },
             onClick = {
