@@ -34,13 +34,21 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -116,12 +124,16 @@ fun ZagoraApp(
 
     val topBg = Color(0xFF0F172A)
     val bottomBg = Color(0xFF1F2937)
-    val accent = Color(0xFF06B6D4)
     val ok = Color(0xFF10B981)
     val warn = Color(0xFFF59E0B)
 
     LaunchedEffect(reconnectPolicy) {
         attachVm.setReconnectPolicy(reconnectPolicy)
+    }
+    LaunchedEffect(screen, server, token) {
+        if (screen == MobileScreen.Sessions && server.isNotBlank()) {
+            vm.loadSessions(server, token, "")
+        }
     }
 
     MaterialTheme {
@@ -188,16 +200,12 @@ fun ZagoraApp(
                         if (hostFilter.isBlank()) true
                         else s.name.contains(hostFilter, ignoreCase = true) || s.host.contains(hostFilter, ignoreCase = true)
                     },
-                    server = server,
-                    token = token,
+                    serverConfigured = server.isNotBlank(),
                     hostFilter = hostFilter,
                     scopeFilter = scopeFilter,
                     onScopeFilterChange = { scopeFilter = it },
-                    onServerChange = { server = it },
-                    onTokenChange = { token = it },
                     onHostFilterChange = { hostFilter = it },
-                    onLoad = { vm.loadSessions(server, token, "") },
-                    onSave = { store.save(server, token, sshUser) },
+                    onRefresh = { vm.loadSessions(server, token, "") },
                     onGoSettings = { screen = MobileScreen.Settings },
                     onAttachSession = { session ->
                         attachVm.disconnect()
@@ -206,8 +214,7 @@ fun ZagoraApp(
                     onOpenSsh = { session -> openInExternalSshApp(ctx, session.host, sshUser) },
                     onDelete = { session -> vm.deleteSession(server, token, session) },
                     okColor = ok,
-                    warnColor = warn,
-                    accent = accent
+                    warnColor = warn
                 )
                 MobileScreen.Settings -> SettingsScreen(
                     server = server,
@@ -217,7 +224,7 @@ fun ZagoraApp(
                     confirmMultilinePaste = confirmMultilinePaste,
                     reconnectPolicy = reconnectPolicy,
                     onBack = { screen = MobileScreen.Sessions },
-                    onSave = { newServer, newToken, newUser, newFont, newConfirm, newPolicy ->
+                    onChange = { newServer, newToken, newUser, newFont, newConfirm, newPolicy ->
                         server = newServer
                         token = newToken
                         sshUser = newUser
@@ -239,160 +246,136 @@ fun ZagoraApp(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun SessionsScreen(
     ui: UiState,
     sessions: List<Session>,
-    server: String,
-    token: String,
+    serverConfigured: Boolean,
     hostFilter: String,
     scopeFilter: SessionScopeFilter,
     onScopeFilterChange: (SessionScopeFilter) -> Unit,
-    onServerChange: (String) -> Unit,
-    onTokenChange: (String) -> Unit,
     onHostFilterChange: (String) -> Unit,
-    onLoad: () -> Unit,
-    onSave: () -> Unit,
+    onRefresh: () -> Unit,
     onGoSettings: () -> Unit,
     onAttachSession: (Session) -> Unit,
     onOpenSsh: (Session) -> Unit,
     onDelete: (Session) -> Unit,
     okColor: Color,
-    warnColor: Color,
-    accent: Color
+    warnColor: Color
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
+    val snackbarHostState = remember { SnackbarHostState() }
+    val pullState = rememberPullToRefreshState()
+
+    LaunchedEffect(ui.message) {
+        if (ui.message.isNotBlank()) {
+            snackbarHostState.showSnackbar(ui.message)
+        }
+    }
+
+    val screenState = remember(serverConfigured, ui.loading, ui.message, sessions) {
+        when {
+            !serverConfigured -> "ConfigMissing"
+            ui.loading -> "Loading"
+            ui.message.contains("failed", ignoreCase = true) || ui.message.contains("error", ignoreCase = true) -> "Error"
+            sessions.isEmpty() -> "Empty"
+            else -> "Ready"
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Sessions") },
+                actions = {
+                    FilledTonalButton(onClick = onRefresh, colors = zagoraTonalButtonColors()) { Text("↻") }
+                    FilledTonalButton(onClick = onGoSettings, colors = zagoraTonalButtonColors()) { Text("⚙") }
+                }
+            )
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { innerPadding ->
+        PullToRefreshBox(
+            isRefreshing = ui.loading,
+            onRefresh = onRefresh,
+            state = pullState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(innerPadding)
         ) {
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF111827).copy(alpha = 0.94f),
-                    tonalElevation = 2.dp
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Sessions",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color(0xFFF8FAFC),
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "List -> Attach -> Terminal",
-                            color = Color(0xFFE2E8F0)
-                        )
-                    }
-                }
-            }
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF111827).copy(alpha = 0.90f),
-                    tonalElevation = 1.dp
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (!serverConfigured) {
+                    item {
+                        Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            value = server,
-                            onValueChange = onServerChange,
-                            label = { Text("Server (http://host:9876)") },
-                            singleLine = true,
-                            colors = zagoraFieldColors()
-                        )
-                        OutlinedTextField(
-                            modifier = Modifier.fillMaxWidth(),
-                            value = token,
-                            onValueChange = onTokenChange,
-                            label = { Text("Token (optional)") },
-                            singleLine = true,
-                            colors = zagoraFieldColors()
-                        )
-                        OutlinedTextField(
-                            modifier = Modifier.fillMaxWidth(),
-                            value = hostFilter,
-                            onValueChange = onHostFilterChange,
-                            label = { Text("Search by session / host") },
-                            singleLine = true,
-                            colors = zagoraFieldColors()
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF1E293B)
                         ) {
-                            SessionScopeFilter.entries.forEach { chip ->
-                                FilterChip(
-                                    selected = scopeFilter == chip,
-                                    onClick = { onScopeFilterChange(chip) },
-                                    label = { Text(chip.label) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFF0E7490),
-                                        selectedLabelColor = Color(0xFFECFEFF),
-                                        containerColor = Color(0xFF334155),
-                                        labelColor = Color(0xFFF8FAFC)
-                                    )
-                                )
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("未配置 server，请先去 Settings。", color = Color(0xFFE2E8F0))
+                                FilledTonalButton(onClick = onGoSettings, colors = zagoraTonalButtonColors()) { Text("Go Settings") }
                             }
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FilledTonalButton(
-                                onClick = onSave,
-                                colors = zagoraTonalButtonColors(),
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Save") }
-                            Button(
-                                onClick = onLoad,
-                                colors = zagoraPrimaryButtonColors(),
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Load Sessions") }
-                        }
-                        FilledTonalButton(
-                            onClick = onGoSettings,
-                            colors = zagoraTonalButtonColors(),
-                            modifier = Modifier.width(132.dp)
-                        ) { Text("Settings") }
                     }
                 }
-            }
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (ui.loading) accent.copy(alpha = 0.22f) else Color(0xFF0B1220).copy(alpha = 0.80f)
-                ) {
+                item {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = hostFilter,
+                        onValueChange = onHostFilterChange,
+                        label = { Text("Search by session / host") },
+                        singleLine = true,
+                        colors = zagoraFieldColors()
+                    )
+                }
+                item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (ui.loading) {
-                            CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
+                        SessionScopeFilter.entries.forEach { chip ->
+                            FilterChip(
+                                selected = scopeFilter == chip,
+                                onClick = { onScopeFilterChange(chip) },
+                                label = { Text(chip.label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0E7490),
+                                    selectedLabelColor = Color(0xFFECFEFF),
+                                    containerColor = Color(0xFF334155),
+                                    labelColor = Color(0xFFF8FAFC)
+                                )
+                            )
                         }
-                        Text(text = if (ui.message.isBlank()) "Ready" else ui.message, color = Color.White)
                     }
                 }
-            }
-            items(sessions) { session ->
-                SessionCard(
-                    session = session,
-                    okColor = okColor,
-                    warnColor = warnColor,
-                    onAttach = { onAttachSession(session) },
-                    onOpenSsh = { onOpenSsh(session) },
-                    onDelete = { onDelete(session) }
-                )
+                item { HorizontalDivider(color = Color(0xFF334155)) }
+                if (screenState == "Empty") {
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF0F172A)
+                        ) {
+                            Text("No sessions", modifier = Modifier.padding(12.dp), color = Color(0xFFCBD5E1))
+                        }
+                    }
+                }
+                items(sessions) { session ->
+                    SessionCard(
+                        session = session,
+                        okColor = okColor,
+                        warnColor = warnColor,
+                        onAttach = { onAttachSession(session) },
+                        onOpenSsh = { onOpenSsh(session) },
+                        onDelete = { onDelete(session) }
+                    )
+                }
             }
         }
     }
@@ -407,7 +390,7 @@ private fun SettingsScreen(
     confirmMultilinePaste: Boolean,
     reconnectPolicy: String,
     onBack: () -> Unit,
-    onSave: (String, String, String, Float, Boolean, String) -> Unit
+    onChange: (String, String, String, Float, Boolean, String) -> Unit
 ) {
     var localServer by remember { mutableStateOf(server) }
     var localToken by remember { mutableStateOf(token) }
@@ -415,6 +398,9 @@ private fun SettingsScreen(
     var localFont by remember { mutableStateOf(terminalFontSize) }
     var localConfirm by remember { mutableStateOf(confirmMultilinePaste) }
     var localPolicy by remember { mutableStateOf(reconnectPolicy) }
+    LaunchedEffect(localServer, localToken, localUser, localFont, localConfirm, localPolicy) {
+        onChange(localServer, localToken, localUser, localFont, localConfirm, localPolicy)
+    }
 
     Box(
         modifier = Modifier
@@ -477,12 +463,7 @@ private fun SettingsScreen(
                             colors = zagoraTonalButtonColors()
                         ) { Text("Reconnect: $localPolicy") }
                     }
-                    Button(
-                        onClick = { onSave(localServer, localToken, localUser, localFont, localConfirm, localPolicy) },
-                        colors = zagoraPrimaryButtonColors()
-                    ) {
-                        Text("Save Settings")
-                    }
+                    Text("Auto-saved", color = Color(0xFF94A3B8), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }

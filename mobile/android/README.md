@@ -94,6 +94,14 @@ bash scripts/verify_android_env.sh
   - Lifecycle：重连策略 `manual / auto3`
 - 保存后会同时更新连接层重连策略（下次 connect 生效）。
 
+## Sessions IA（V2）
+
+- `Sessions` 页面仅保留：搜索、Filter chips、会话列表、刷新与设置入口。
+- `Server/Token` 配置已移到 `Settings` 页面。
+- 进入 `Sessions` 自动加载；支持顶部刷新与下拉刷新。
+- 未配置 server 时会在列表顶部显示配置引导 banner。
+- 状态提示改为 `Snackbar`，不再占用独立大块卡片空间。
+
 ## Sessions Filter Chips
 
 Sessions 页面新增快捷筛选：
