@@ -66,7 +66,6 @@ import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private enum class MobileScreen {
     Sessions,
@@ -129,11 +128,13 @@ fun ZagoraApp(
             .fillMaxSize()
             .background(Brush.verticalGradient(colors = listOf(topBg, bottomBg)))
         if (attachTarget != null) {
+            val savedSessionSsh = store.loadSessionSsh(attachTarget!!.host, attachTarget!!.name)
             Box(modifier = bgModifier) {
                 AttachScreen(
                     target = attachTarget!!,
                     attachState = attachState,
-                    initialUser = sshUser,
+                    initialUser = savedSessionSsh.first.ifBlank { sshUser },
+                    initialPassword = savedSessionSsh.second,
                     onBack = {
                         attachVm.disconnect()
                         attachTarget = null
@@ -149,6 +150,12 @@ fun ZagoraApp(
                             user = user,
                             password = password,
                             sessionName = attachTarget!!.name
+                        )
+                        store.saveSessionSsh(
+                            host = attachTarget!!.host,
+                            session = attachTarget!!.name,
+                            sshUser = user,
+                            sshPassword = password
                         )
                     },
                     onDisconnect = { attachVm.disconnect() },
@@ -547,6 +554,7 @@ private fun AttachScreen(
     target: Session,
     attachState: com.followcat.zagora.data.AttachState,
     initialUser: String,
+    initialPassword: String,
     onBack: () -> Unit,
     onConnect: (String, String) -> Unit,
     onDisconnect: () -> Unit,
@@ -570,8 +578,8 @@ private fun AttachScreen(
     confirmMultilinePaste: Boolean
 ) {
     var user by remember(target.host, target.name) { mutableStateOf(initialUser) }
-    var password by remember(target.host, target.name) { mutableStateOf("") }
-    var showSessionDrawer by remember(target.host, target.name) { mutableStateOf(false) }
+    var password by remember(target.host, target.name) { mutableStateOf(initialPassword) }
+    var showCredentialsDialog by remember(target.host, target.name) { mutableStateOf(false) }
     var extraKeysVisible by remember(target.host, target.name) { mutableStateOf(true) }
     var terminalFontSize by remember(target.host, target.name, initialFontSize) { mutableStateOf(initialFontSize) }
     var showPasteConfirm by remember(target.host, target.name) { mutableStateOf(false) }
@@ -613,6 +621,11 @@ private fun AttachScreen(
         if (showGestureHint) {
             delay(2500)
             showGestureHint = false
+        }
+    }
+    LaunchedEffect(target.host, target.name) {
+        if (user.isBlank()) {
+            showCredentialsDialog = true
         }
     }
     val connState = remember(attachState.phase, attachState.message) {
@@ -851,9 +864,9 @@ private fun AttachScreen(
     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
         DropdownMenuItem(text = { Text("Session") }, enabled = false, onClick = {})
         DropdownMenuItem(
-            text = { Text(if (showSessionDrawer) "Hide Session Form" else "Session Form") },
+            text = { Text("SSH Credentials") },
             onClick = {
-                showSessionDrawer = !showSessionDrawer
+                showCredentialsDialog = true
                 menuExpanded = false
             }
         )
@@ -918,43 +931,47 @@ private fun AttachScreen(
         )
     }
 
-    AnimatedVisibility(visible = showSessionDrawer) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF0B1220).copy(alpha = 0.95f)
-        ) {
-            Column(modifier = Modifier.padding(10.dp)) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = user,
-                    onValueChange = { user = it },
-                    label = { Text("SSH user") },
-                    singleLine = true,
-                    colors = zagoraFieldColors()
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("SSH password (optional)") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    colors = zagoraFieldColors()
-                )
-                Spacer(Modifier.height(8.dp))
+    if (showCredentialsDialog) {
+        AlertDialog(
+            onDismissRequest = { showCredentialsDialog = false },
+            title = { Text("SSH Credentials") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = user,
+                        onValueChange = { user = it },
+                        label = { Text("SSH user") },
+                        singleLine = true,
+                        colors = zagoraFieldColors()
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("SSH password (optional)") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        colors = zagoraFieldColors()
+                    )
+                }
+            },
+            confirmButton = {
                 Button(
-                    onClick = { onConnect(user.trim(), password) },
+                    onClick = {
+                        onConnect(user.trim(), password)
+                        showCredentialsDialog = false
+                    },
                     enabled = !attachState.connecting,
                     colors = zagoraPrimaryButtonColors()
-                ) {
-                    Text(if (attachState.connecting) "Connecting..." else "Connect + Attach")
+                ) { Text(if (attachState.connecting) "Connecting..." else "Connect + Attach") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCredentialsDialog = false }, colors = zagoraDangerTextButtonColors()) {
+                    Text("Cancel")
                 }
             }
-        }
+        )
     }
 
     if (showPasteConfirm) {

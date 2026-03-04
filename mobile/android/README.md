@@ -82,6 +82,7 @@ bash scripts/verify_android_env.sh
 - `CTRL* / ALT*` 为粘滞键，开启后按钮高亮，下一次发送后自动释放。
 - 多行粘贴默认二次确认（可在 Settings 面板中关闭）。
 - 顶部展示流量统计（`in/out` 字节）和错误码，便于诊断连通性问题。
+- SSH 凭据改为弹窗输入（不再常驻占用终端空间），并按 `host+session` 记住上次输入（user/password）。
 
 ## Settings 独立页面
 
