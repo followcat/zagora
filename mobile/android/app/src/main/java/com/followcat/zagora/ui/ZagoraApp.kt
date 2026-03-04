@@ -27,6 +27,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,15 +83,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -913,6 +919,9 @@ private fun AttachScreen(
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val imeFocusRequester = remember(target.host, target.name) { FocusRequester() }
+    var imeBuffer by remember(target.host, target.name) { mutableStateOf("") }
     val density = LocalDensity.current
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 120, rows = 42) }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
@@ -1163,6 +1172,28 @@ private fun AttachScreen(
                 .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                // Hidden IME bridge: capture soft keyboard text and forward to remote PTY.
+                BasicTextField(
+                    value = imeBuffer,
+                    onValueChange = { next ->
+                        val old = imeBuffer
+                        if (next == old) return@BasicTextField
+                        val prefixLen = old.commonPrefixWith(next).length
+                        val deleted = (old.length - prefixLen).coerceAtLeast(0)
+                        val inserted = next.substring(prefixLen)
+                        if (deleted > 0) onPasteRaw("\b".repeat(deleted))
+                        if (inserted.isNotEmpty()) onPasteRaw(inserted)
+                        imeBuffer = next.takeLast(128)
+                    },
+                    modifier = Modifier
+                        .size(1.dp)
+                        .focusRequester(imeFocusRequester),
+                    keyboardOptions = KeyboardOptions(
+                        autoCorrect = false,
+                        imeAction = ImeAction.None
+                    ),
+                    singleLine = true
+                )
                 SelectionContainer {
                     Text(
                         text = terminalAnnotated,
@@ -1170,10 +1201,16 @@ private fun AttachScreen(
                             .fillMaxSize()
                             .onSizeChanged { terminalViewportPx = it }
                             .combinedClickable(
-                                onClick = { showGestureHint = false },
+                                onClick = {
+                                    showGestureHint = false
+                                    imeFocusRequester.requestFocus()
+                                    keyboardController?.show()
+                                },
                                 onLongClick = {
                                     selectionMode = true
                                     showGestureHint = false
+                                    imeFocusRequester.requestFocus()
+                                    keyboardController?.show()
                                 }
                             )
                             .verticalScroll(outputScroll)
