@@ -21,6 +21,9 @@ import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 
 enum class AttachPhase {
@@ -279,13 +282,35 @@ class SshAttachRepository(
         readJob = scope.launch {
             val input = channel.inputStream ?: return@launch
             val buf = ByteArray(4096)
+            val decoder = StandardCharsets.UTF_8.newDecoder().apply {
+                onMalformedInput(CodingErrorAction.REPLACE)
+                onUnmappableCharacter(CodingErrorAction.REPLACE)
+            }
+            var pending = ByteArray(0)
             while (!Thread.currentThread().isInterrupted && channel.isConnected) {
                 val n = runCatching { input.read(buf) }.getOrElse { -1 }
                 if (n <= 0) {
                     break
                 }
+                val merged = if (pending.isEmpty()) {
+                    buf.copyOfRange(0, n)
+                } else {
+                    ByteArray(pending.size + n).also {
+                        System.arraycopy(pending, 0, it, 0, pending.size)
+                        System.arraycopy(buf, 0, it, pending.size, n)
+                    }
+                }
+                val byteBuffer = ByteBuffer.wrap(merged)
+                val charBuffer = CharBuffer.allocate((merged.size * decoder.maxCharsPerByte()).toInt() + 2)
+                decoder.decode(byteBuffer, charBuffer, false)
+                charBuffer.flip()
+                val chunk = charBuffer.toString()
+                pending = if (byteBuffer.hasRemaining()) {
+                    ByteArray(byteBuffer.remaining()).also { byteBuffer.get(it) }
+                } else {
+                    ByteArray(0)
+                }
                 _state.update { st ->
-                    val chunk = String(buf, 0, n, StandardCharsets.UTF_8)
                     val merged = (st.output + chunk).takeLast(120_000)
                     val zellijMissing = chunk.contains("zellij not found", ignoreCase = true)
                     val newMsg = if (zellijMissing) {

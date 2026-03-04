@@ -56,7 +56,7 @@ class TerminalEmulator(
     rows: Int = 36,
     private val scrollbackLimit: Int = 1500
 ) {
-    private enum class ParseState { NORMAL, ESCAPE, CSI, OSC }
+    private enum class ParseState { NORMAL, ESCAPE, CSI, OSC, CHARSET }
 
     private var cols = cols.coerceAtLeast(8)
     private var rows = rows.coerceAtLeast(4)
@@ -65,6 +65,7 @@ class TerminalEmulator(
     private val csiBuf = StringBuilder()
     private val oscBuf = StringBuilder()
     private var oscEscSeen = false
+    private var charsetPrefix: Char = '('
 
     private val history = ArrayDeque<CellArray>()
     private var primary = emptyScreen()
@@ -77,6 +78,7 @@ class TerminalEmulator(
     private var savedCol = 0
     private var currentFg = AnsiColor.DEFAULT
     private var currentBg = AnsiColor.DEFAULT
+    private var decLineDrawing = false
 
     fun reset() {
         state = ParseState.NORMAL
@@ -93,6 +95,7 @@ class TerminalEmulator(
         savedCol = 0
         currentFg = AnsiColor.DEFAULT
         currentBg = AnsiColor.DEFAULT
+        decLineDrawing = false
     }
 
     fun resize(newCols: Int, newRows: Int) {
@@ -126,6 +129,7 @@ class TerminalEmulator(
                 ParseState.ESCAPE -> onEscape(ch)
                 ParseState.CSI -> onCsi(ch)
                 ParseState.OSC -> onOsc(ch)
+                ParseState.CHARSET -> onCharset(ch)
             }
         }
     }
@@ -162,6 +166,17 @@ class TerminalEmulator(
     private fun onNormal(ch: Char) {
         when (ch) {
             ESC -> state = ParseState.ESCAPE
+            '\u009B' -> {
+                csiBuf.setLength(0)
+                state = ParseState.CSI
+            }
+            '\u009D' -> {
+                oscBuf.setLength(0)
+                oscEscSeen = false
+                state = ParseState.OSC
+            }
+            '\u000E' -> decLineDrawing = true
+            '\u000F' -> decLineDrawing = false
             '\n' -> lineFeed()
             '\r' -> cursorCol = 0
             '\b' -> cursorCol = (cursorCol - 1).coerceAtLeast(0)
@@ -169,7 +184,7 @@ class TerminalEmulator(
                 val nextStop = ((cursorCol / 8) + 1) * 8
                 cursorCol = nextStop.coerceAtMost(cols - 1)
             }
-            else -> if (ch >= ' ') putChar(ch)
+            else -> if (ch >= ' ' && !Character.isISOControl(ch)) putChar(mapChar(ch))
         }
     }
 
@@ -178,6 +193,11 @@ class TerminalEmulator(
             '[' -> {
                 csiBuf.setLength(0)
                 state = ParseState.CSI
+            }
+            '(',
+            ')' -> {
+                charsetPrefix = ch
+                state = ParseState.CHARSET
             }
             ']' -> {
                 oscBuf.setLength(0)
@@ -209,6 +229,13 @@ class TerminalEmulator(
             }
             else -> state = ParseState.NORMAL
         }
+    }
+
+    private fun onCharset(ch: Char) {
+        if (charsetPrefix == '(' || charsetPrefix == ')') {
+            decLineDrawing = (ch == '0')
+        }
+        state = ParseState.NORMAL
     }
 
     private fun onCsi(ch: Char) {
@@ -349,6 +376,25 @@ class TerminalEmulator(
         if (cursorCol >= cols) {
             cursorCol = 0
             lineFeed()
+        }
+    }
+
+    private fun mapChar(ch: Char): Char {
+        if (!decLineDrawing) return ch
+        return when (ch) {
+            'j' -> '\u2518'
+            'k' -> '\u2510'
+            'l' -> '\u250C'
+            'm' -> '\u2514'
+            'n' -> '\u253C'
+            'q' -> '\u2500'
+            't' -> '\u251C'
+            'u' -> '\u2524'
+            'v' -> '\u2534'
+            'w' -> '\u252C'
+            'x' -> '\u2502'
+            '~' -> '\u00B7'
+            else -> ch
         }
     }
 
