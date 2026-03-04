@@ -5,6 +5,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -80,15 +81,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -186,6 +188,9 @@ fun ZagoraApp(
                 onSendHome = { attachVm.sendHome() },
                 onSendEnd = { attachVm.sendEnd() },
                 onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
+                onResizeTerminal = { cols, rows, pxWidth, pxHeight ->
+                    attachVm.resizeTerminal(cols, rows, pxWidth, pxHeight)
+                },
                 stickyCtrl = sticky.ctrl,
                 stickyAlt = sticky.alt,
                 onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
@@ -841,6 +846,7 @@ private fun AttachScreen(
     onSendHome: () -> Unit,
     onSendEnd: () -> Unit,
     onPasteRaw: (String) -> Unit,
+    onResizeTerminal: (Int, Int, Int, Int) -> Unit,
     stickyCtrl: Boolean,
     stickyAlt: Boolean,
     onToggleStickyCtrl: () -> Unit,
@@ -866,7 +872,9 @@ private fun AttachScreen(
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
-    val term = remember(target.host, target.name) { TerminalEmulator(cols = 100, rows = 36) }
+    val density = LocalDensity.current
+    val term = remember(target.host, target.name) { TerminalEmulator(cols = 120, rows = 42) }
+    var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
 
@@ -904,9 +912,20 @@ private fun AttachScreen(
         }
     }
 
-    val terminalPalette = terminalTextPalette()
+    val terminalPalette = terminalColorPalette()
     val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
-        buildTerminalAnnotated(renderedTerminal, terminalPalette)
+        term.renderAnnotated(terminalPalette)
+    }
+
+    LaunchedEffect(terminalViewportPx, terminalFontSize) {
+        if (terminalViewportPx.width <= 0 || terminalViewportPx.height <= 0) return@LaunchedEffect
+        val charWidthPx = with(density) { (terminalFontSize.sp.toPx() * 0.62f).coerceAtLeast(5f) }
+        val lineHeightPx = with(density) { ((terminalFontSize + 6f).sp.toPx()).coerceAtLeast(9f) }
+        val cols = (terminalViewportPx.width / charWidthPx).toInt().coerceAtLeast(20)
+        val rows = (terminalViewportPx.height / lineHeightPx).toInt().coerceAtLeast(8)
+        term.resize(cols, rows)
+        renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
+        onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
     }
 
     LaunchedEffect(attachState.output, followOutput) {
@@ -1098,15 +1117,13 @@ private fun AttachScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-            ) {
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 SelectionContainer {
                     Text(
                         text = terminalAnnotated,
                         modifier = Modifier
                             .fillMaxSize()
+                            .onSizeChanged { terminalViewportPx = it }
                             .combinedClickable(
                                 onClick = { showGestureHint = false },
                                 onLongClick = {
@@ -1419,14 +1436,15 @@ private fun phaseLabel(phase: com.followcat.zagora.data.AttachPhase): String = w
     com.followcat.zagora.data.AttachPhase.Error -> "Error"
 }
 
+@Composable
 private fun phaseColor(phase: com.followcat.zagora.data.AttachPhase): Color = when (phase) {
-    com.followcat.zagora.data.AttachPhase.Connected -> Color(0xFF34D399)
+    com.followcat.zagora.data.AttachPhase.Connected -> MaterialTheme.colorScheme.primary
     com.followcat.zagora.data.AttachPhase.Connecting,
     com.followcat.zagora.data.AttachPhase.Attaching,
-    com.followcat.zagora.data.AttachPhase.Reconnecting -> Color(0xFF38BDF8)
-    com.followcat.zagora.data.AttachPhase.Error -> Color(0xFFFCA5A5)
-    com.followcat.zagora.data.AttachPhase.Disconnected -> Color(0xFF94A3B8)
-    com.followcat.zagora.data.AttachPhase.Idle -> Color(0xFF94A3B8)
+    com.followcat.zagora.data.AttachPhase.Reconnecting -> MaterialTheme.colorScheme.tertiary
+    com.followcat.zagora.data.AttachPhase.Error -> MaterialTheme.colorScheme.error
+    com.followcat.zagora.data.AttachPhase.Disconnected -> MaterialTheme.colorScheme.onSurfaceVariant
+    com.followcat.zagora.data.AttachPhase.Idle -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 private fun _shortLabelTime(raw: String): String {
@@ -1434,47 +1452,11 @@ private fun _shortLabelTime(raw: String): String {
     return if (s.length >= 16) s.substring(5, 16) else s
 }
 
-private data class TerminalTextPalette(
-    val prompt: Color,
-    val command: Color,
-    val error: Color,
-    val warning: Color,
-    val success: Color,
-    val normal: Color
-)
-
 @Composable
-private fun terminalTextPalette(): TerminalTextPalette = TerminalTextPalette(
-    prompt = MaterialTheme.colorScheme.primary,
-    command = MaterialTheme.colorScheme.onSurface,
-    error = Color(0xFFFCA5A5),
-    warning = MaterialTheme.colorScheme.tertiary,
-    success = Color(0xFF86EFAC),
-    normal = MaterialTheme.colorScheme.onSurface
+private fun terminalColorPalette(): TerminalColorPalette = TerminalColorPalette(
+    defaultForeground = MaterialTheme.colorScheme.onBackground,
+    defaultBackground = MaterialTheme.colorScheme.background
 )
-
-private fun buildTerminalAnnotated(text: String, palette: TerminalTextPalette): AnnotatedString {
-    val error = Regex("(?i)(error|failed|exception|traceback)")
-    val warn = Regex("(?i)(warn|warning)")
-    val ok = Regex("(?i)(success|connected|attached|done|ok\\b)")
-    val prompt = Regex("^\\s*([\\w.-]+@[^\\s]+[:~].*[#$]|[#$>]\\s)")
-    val cmdEcho = Regex("^\\s*\\$\\s+.+")
-    return androidx.compose.ui.text.buildAnnotatedString {
-        val lines = text.split('\n')
-        lines.forEachIndexed { i, line ->
-            val style = when {
-                prompt.containsMatchIn(line) -> SpanStyle(color = palette.prompt)
-                cmdEcho.containsMatchIn(line) -> SpanStyle(color = palette.command)
-                error.containsMatchIn(line) -> SpanStyle(color = palette.error)
-                warn.containsMatchIn(line) -> SpanStyle(color = palette.warning)
-                ok.containsMatchIn(line) -> SpanStyle(color = palette.success)
-                else -> SpanStyle(color = palette.normal)
-            }
-            withStyle(style) { append(line) }
-            if (i < lines.lastIndex) append('\n')
-        }
-    }
-}
 
 @Composable
 private fun zagoraFieldColors() = OutlinedTextFieldDefaults.colors(

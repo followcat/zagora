@@ -1,20 +1,72 @@
 package com.followcat.zagora.ui
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+
 private const val ESC = '\u001B'
 
+private data class Cell(
+    var ch: Char = ' ',
+    var fg: Int = AnsiColor.DEFAULT,
+    var bg: Int = AnsiColor.DEFAULT
+)
+
+private typealias CellArray = Array<Cell>
+
+private object AnsiColor {
+    const val DEFAULT = -1
+    private val NORMAL = listOf(
+        Color(0xFF111111), // black
+        Color(0xFFE05A5A), // red
+        Color(0xFF7ACB88), // green
+        Color(0xFFE0C46A), // yellow
+        Color(0xFF7AA2F7), // blue
+        Color(0xFFC792EA), // magenta
+        Color(0xFF7DCFFF), // cyan
+        Color(0xFFE5E9F0)  // white
+    )
+    private val BRIGHT = listOf(
+        Color(0xFF4B5563),
+        Color(0xFFF87171),
+        Color(0xFF86EFAC),
+        Color(0xFFFDE68A),
+        Color(0xFF93C5FD),
+        Color(0xFFD8B4FE),
+        Color(0xFF67E8F9),
+        Color(0xFFF8FAFC)
+    )
+
+    fun resolve(code: Int): Color = when {
+        code in 0..7 -> NORMAL[code]
+        code in 8..15 -> BRIGHT[code - 8]
+        else -> Color.Unspecified
+    }
+}
+
+data class TerminalColorPalette(
+    val defaultForeground: Color,
+    val defaultBackground: Color
+)
+
 class TerminalEmulator(
-    private val cols: Int = 100,
-    private val rows: Int = 36,
+    cols: Int = 100,
+    rows: Int = 36,
     private val scrollbackLimit: Int = 1500
 ) {
     private enum class ParseState { NORMAL, ESCAPE, CSI, OSC }
+
+    private var cols = cols.coerceAtLeast(8)
+    private var rows = rows.coerceAtLeast(4)
 
     private var state = ParseState.NORMAL
     private val csiBuf = StringBuilder()
     private val oscBuf = StringBuilder()
     private var oscEscSeen = false
 
-    private val history = ArrayDeque<String>()
+    private val history = ArrayDeque<CellArray>()
     private var primary = emptyScreen()
     private var alternate = emptyScreen()
     private var useAlternate = false
@@ -23,6 +75,8 @@ class TerminalEmulator(
     private var cursorCol = 0
     private var savedRow = 0
     private var savedCol = 0
+    private var currentFg = AnsiColor.DEFAULT
+    private var currentBg = AnsiColor.DEFAULT
 
     fun reset() {
         state = ParseState.NORMAL
@@ -37,6 +91,32 @@ class TerminalEmulator(
         cursorCol = 0
         savedRow = 0
         savedCol = 0
+        currentFg = AnsiColor.DEFAULT
+        currentBg = AnsiColor.DEFAULT
+    }
+
+    fun resize(newCols: Int, newRows: Int) {
+        val targetCols = newCols.coerceAtLeast(8)
+        val targetRows = newRows.coerceAtLeast(4)
+        if (targetCols == cols && targetRows == rows) return
+
+        primary = resizeScreen(primary, cols, rows, targetCols, targetRows)
+        alternate = resizeScreen(alternate, cols, rows, targetCols, targetRows)
+
+        val resizedHistory = ArrayDeque<CellArray>()
+        for (line in history) {
+            resizedHistory.addLast(resizeRow(line, cols, targetCols))
+            while (resizedHistory.size > scrollbackLimit) resizedHistory.removeFirst()
+        }
+        history.clear()
+        history.addAll(resizedHistory)
+
+        cols = targetCols
+        rows = targetRows
+        cursorRow = cursorRow.coerceIn(0, rows - 1)
+        cursorCol = cursorCol.coerceIn(0, cols - 1)
+        savedRow = savedRow.coerceIn(0, rows - 1)
+        savedCol = savedCol.coerceIn(0, cols - 1)
     }
 
     fun feed(text: String) {
@@ -52,13 +132,31 @@ class TerminalEmulator(
 
     fun renderText(): String {
         val lines = ArrayList<String>(history.size + rows)
-        lines.addAll(history)
+        for (line in history) {
+            lines.add(charsFromRow(line).trimEnd())
+        }
         val screen = activeScreen()
         for (r in 0 until rows) {
-            val line = String(screen[r]).trimEnd()
-            lines.add(line)
+            lines.add(charsFromRow(screen[r]).trimEnd())
         }
         return lines.joinToString("\n")
+    }
+
+    fun renderAnnotated(palette: TerminalColorPalette): AnnotatedString {
+        val lines = ArrayList<CellArray>(history.size + rows)
+        for (line in history) {
+            lines.add(line)
+        }
+        val screen = activeScreen()
+        for (r in 0 until rows) {
+            lines.add(screen[r])
+        }
+        return buildAnnotatedString {
+            lines.forEachIndexed { index, row ->
+                appendRowWithStyles(row, palette)
+                if (index < lines.lastIndex) append('\n')
+            }
+        }
     }
 
     private fun onNormal(ch: Char) {
@@ -71,11 +169,7 @@ class TerminalEmulator(
                 val nextStop = ((cursorCol / 8) + 1) * 8
                 cursorCol = nextStop.coerceAtMost(cols - 1)
             }
-            else -> {
-                if (ch >= ' ') {
-                    putChar(ch)
-                }
-            }
+            else -> if (ch >= ' ') putChar(ch)
         }
     }
 
@@ -113,9 +207,7 @@ class TerminalEmulator(
                 cursorCol = 0
                 state = ParseState.NORMAL
             }
-            else -> {
-                state = ParseState.NORMAL
-            }
+            else -> state = ParseState.NORMAL
         }
     }
 
@@ -165,9 +257,7 @@ class TerminalEmulator(
             }
             'J' -> eraseInDisplay(p1)
             'K' -> eraseInLine(p1)
-            'm' -> {
-                // Ignore colors/styles for now.
-            }
+            'm' -> applySgr(params)
             's' -> {
                 savedRow = cursorRow
                 savedCol = cursorCol
@@ -178,8 +268,29 @@ class TerminalEmulator(
             }
             'h' -> if (isPrivate) handlePrivateMode(body, true)
             'l' -> if (isPrivate) handlePrivateMode(body, false)
-            else -> {
-                // Unsupported CSI: ignore safely.
+            else -> Unit
+        }
+    }
+
+    private fun applySgr(params: List<Int>) {
+        if (params.isEmpty()) {
+            currentFg = AnsiColor.DEFAULT
+            currentBg = AnsiColor.DEFAULT
+            return
+        }
+        for (code in params) {
+            when {
+                code == 0 -> {
+                    currentFg = AnsiColor.DEFAULT
+                    currentBg = AnsiColor.DEFAULT
+                }
+                code == 39 -> currentFg = AnsiColor.DEFAULT
+                code == 49 -> currentBg = AnsiColor.DEFAULT
+                code in 30..37 -> currentFg = code - 30
+                code in 90..97 -> currentFg = (code - 90) + 8
+                code in 40..47 -> currentBg = code - 40
+                code in 100..107 -> currentBg = (code - 100) + 8
+                else -> Unit
             }
         }
     }
@@ -199,26 +310,22 @@ class TerminalEmulator(
     }
 
     private fun eraseInDisplay(mode: Int) {
+        val screen = activeScreen()
         when (mode) {
             2 -> {
-                val screen = activeScreen()
                 for (r in 0 until rows) {
-                    screen[r].fill(' ')
+                    clearRow(screen[r])
                 }
                 cursorRow = 0
                 cursorCol = 0
             }
             0 -> {
-                val screen = activeScreen()
-                // Cursor to end of screen
-                for (c in cursorCol until cols) screen[cursorRow][c] = ' '
-                for (r in (cursorRow + 1) until rows) screen[r].fill(' ')
+                for (c in cursorCol until cols) clearCell(screen[cursorRow][c])
+                for (r in (cursorRow + 1) until rows) clearRow(screen[r])
             }
             1 -> {
-                val screen = activeScreen()
-                // Start of screen to cursor
-                for (r in 0 until cursorRow) screen[r].fill(' ')
-                for (c in 0..cursorCol.coerceAtMost(cols - 1)) screen[cursorRow][c] = ' '
+                for (r in 0 until cursorRow) clearRow(screen[r])
+                for (c in 0..cursorCol.coerceAtMost(cols - 1)) clearCell(screen[cursorRow][c])
             }
         }
     }
@@ -226,15 +333,18 @@ class TerminalEmulator(
     private fun eraseInLine(mode: Int) {
         val line = activeScreen()[cursorRow]
         when (mode) {
-            0 -> for (c in cursorCol until cols) line[c] = ' '
-            1 -> for (c in 0..cursorCol.coerceAtMost(cols - 1)) line[c] = ' '
-            2 -> line.fill(' ')
+            0 -> for (c in cursorCol until cols) clearCell(line[c])
+            1 -> for (c in 0..cursorCol.coerceAtMost(cols - 1)) clearCell(line[c])
+            2 -> clearRow(line)
         }
     }
 
     private fun putChar(ch: Char) {
         val screen = activeScreen()
-        screen[cursorRow][cursorCol] = ch
+        val cell = screen[cursorRow][cursorCol]
+        cell.ch = ch
+        cell.fg = currentFg
+        cell.bg = currentBg
         cursorCol++
         if (cursorCol >= cols) {
             cursorCol = 0
@@ -254,9 +364,9 @@ class TerminalEmulator(
         if (cursorRow == 0) {
             val screen = activeScreen()
             for (r in (rows - 1) downTo 1) {
-                screen[r] = screen[r - 1].copyOf()
+                screen[r] = cloneRow(screen[r - 1])
             }
-            screen[0] = CharArray(cols) { ' ' }
+            screen[0] = emptyRow()
         } else {
             cursorRow--
         }
@@ -265,16 +375,93 @@ class TerminalEmulator(
     private fun scrollUp() {
         val screen = activeScreen()
         if (!useAlternate) {
-            history.addLast(String(screen[0]))
+            history.addLast(cloneRow(screen[0]))
             while (history.size > scrollbackLimit) history.removeFirst()
         }
         for (r in 0 until rows - 1) {
             screen[r] = screen[r + 1]
         }
-        screen[rows - 1] = CharArray(cols) { ' ' }
+        screen[rows - 1] = emptyRow()
     }
 
-    private fun activeScreen(): Array<CharArray> = if (useAlternate) alternate else primary
+    private fun AnnotatedString.Builder.appendRowWithStyles(
+        row: CellArray,
+        palette: TerminalColorPalette,
+        trimEnd: Boolean = true
+    ) {
+        var end = row.size
+        if (trimEnd) {
+            while (end > 0 && row[end - 1].ch == ' ') end--
+        }
+        if (end == 0) return
 
-    private fun emptyScreen(): Array<CharArray> = Array(rows) { CharArray(cols) { ' ' } }
+        var i = 0
+        while (i < end) {
+            val fg = row[i].fg
+            val bg = row[i].bg
+            val start = i
+            i++
+            while (i < end && row[i].fg == fg && row[i].bg == bg) i++
+
+            val fgColor = if (fg == AnsiColor.DEFAULT) palette.defaultForeground else AnsiColor.resolve(fg)
+            val bgColor = if (bg == AnsiColor.DEFAULT) palette.defaultBackground else AnsiColor.resolve(bg)
+            val style = if (bg == AnsiColor.DEFAULT) {
+                SpanStyle(color = fgColor)
+            } else {
+                SpanStyle(color = fgColor, background = bgColor)
+            }
+            withStyle(style) {
+                for (idx in start until i) append(row[idx].ch)
+            }
+        }
+    }
+
+    private fun activeScreen(): Array<CellArray> = if (useAlternate) alternate else primary
+
+    private fun emptyScreen(): Array<CellArray> = Array(rows) { emptyRow() }
+
+    private fun emptyRow(): CellArray = Array(cols) { Cell() }
+
+    private fun clearRow(row: CellArray) {
+        row.forEach { clearCell(it) }
+    }
+
+    private fun clearCell(cell: Cell) {
+        cell.ch = ' '
+        cell.fg = AnsiColor.DEFAULT
+        cell.bg = AnsiColor.DEFAULT
+    }
+
+    private fun cloneRow(row: CellArray): CellArray = Array(row.size) { idx -> row[idx].copy() }
+
+    private fun charsFromRow(row: CellArray): String = buildString(row.size) {
+        row.forEach { append(it.ch) }
+    }
+
+    private fun resizeScreen(
+        src: Array<CellArray>,
+        oldCols: Int,
+        oldRows: Int,
+        newCols: Int,
+        newRows: Int
+    ): Array<CellArray> {
+        val dst = Array(newRows) { Array(newCols) { Cell() } }
+        val rowCount = minOf(oldRows, newRows)
+        val colCount = minOf(oldCols, newCols)
+        for (r in 0 until rowCount) {
+            for (c in 0 until colCount) {
+                dst[r][c] = src[r][c].copy()
+            }
+        }
+        return dst
+    }
+
+    private fun resizeRow(src: CellArray, oldCols: Int, newCols: Int): CellArray {
+        val dst = Array(newCols) { Cell() }
+        val colCount = minOf(oldCols, newCols)
+        for (c in 0 until colCount) {
+            dst[c] = src[c].copy()
+        }
+        return dst
+    }
 }
