@@ -70,6 +70,17 @@ class TestSessionStore(unittest.TestCase):
             self.assertTrue(info["host_reachable"])
             self.assertIsNotNone(info["health_checked_at"])
 
+    def test_set_host_reachable_updates_checked_time_even_when_status_same(self):
+        with TemporaryDirectory() as d:
+            store = SessionStore(Path(d) / "sessions.json")
+            store.register("Work", "v100")
+            self.assertTrue(store.set_host_reachable("Work", True))
+            first = store.get("Work")["health_checked_at"]
+            time.sleep(0.01)
+            self.assertFalse(store.set_host_reachable("Work", True))
+            second = store.get("Work")["health_checked_at"]
+            self.assertNotEqual(first, second)
+
     def test_same_name_across_hosts(self):
         with TemporaryDirectory() as d:
             store = SessionStore(Path(d) / "sessions.json")

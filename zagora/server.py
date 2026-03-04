@@ -171,10 +171,10 @@ class SessionStore:
             if not s:
                 return False
             new_value = bool(reachable)
+            s["health_checked_at"] = now
             if s.get("host_reachable") == new_value:
                 return False
             s["host_reachable"] = new_value
-            s["health_checked_at"] = now
             self._save()
             return True
 
