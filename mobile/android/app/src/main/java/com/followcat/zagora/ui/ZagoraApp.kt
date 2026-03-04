@@ -134,6 +134,7 @@ fun ZagoraApp(
     var hostFilter by remember { mutableStateOf("") }
     var sshUser by remember { mutableStateOf(store.loadSshUser()) }
     var terminalFontSizePref by remember { mutableStateOf(store.loadTerminalFontSize()) }
+    var terminalFontPackPref by remember { mutableStateOf(TerminalFontPack.fromId(store.loadTerminalFontPack())) }
     var confirmMultilinePaste by remember { mutableStateOf(store.loadConfirmMultilinePaste()) }
     var reconnectPolicy by remember { mutableStateOf(store.loadReconnectPolicy()) }
     var screen by remember { mutableStateOf(MobileScreen.Sessions) }
@@ -200,6 +201,7 @@ fun ZagoraApp(
                 onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
                 onToggleStickyAlt = { attachVm.toggleStickyAlt() },
                 initialFontSize = terminalFontSizePref,
+                terminalFontPack = terminalFontPackPref,
                 confirmMultilinePaste = confirmMultilinePaste,
                 onAppBackground = { attachVm.onAppBackground() },
                 onAppForeground = { attachVm.onAppForeground() }
@@ -244,15 +246,17 @@ fun ZagoraApp(
                 token = token,
                 sshUser = sshUser,
                 terminalFontSize = terminalFontSizePref,
+                terminalFontPack = terminalFontPackPref,
                 confirmMultilinePaste = confirmMultilinePaste,
                 reconnectPolicy = reconnectPolicy,
                 themeVariant = themeVariant,
                 onBack = { screen = MobileScreen.Sessions },
-                onChange = { newServer, newToken, newUser, newFont, newConfirm, newPolicy, newThemeVariant ->
+                onChange = { newServer, newToken, newUser, newFont, newFontPack, newConfirm, newPolicy, newThemeVariant ->
                     server = newServer
                     token = newToken
                     sshUser = newUser
                     terminalFontSizePref = newFont
+                    terminalFontPackPref = newFontPack
                     confirmMultilinePaste = newConfirm
                     reconnectPolicy = newPolicy
                     onThemeVariantChange(newThemeVariant)
@@ -262,7 +266,8 @@ fun ZagoraApp(
                     store.saveTerminalPrefs(
                         fontSize = terminalFontSizePref,
                         confirmMultilinePaste = confirmMultilinePaste,
-                        reconnectPolicy = reconnectPolicy
+                        reconnectPolicy = reconnectPolicy,
+                        terminalFontPack = terminalFontPackPref.id
                     )
                 }
             )
@@ -486,16 +491,18 @@ private fun SettingsScreen(
     token: String,
     sshUser: String,
     terminalFontSize: Float,
+    terminalFontPack: TerminalFontPack,
     confirmMultilinePaste: Boolean,
     reconnectPolicy: String,
     themeVariant: ZagoraThemeVariant,
     onBack: () -> Unit,
-    onChange: (String, String, String, Float, Boolean, String, ZagoraThemeVariant) -> Unit
+    onChange: (String, String, String, Float, TerminalFontPack, Boolean, String, ZagoraThemeVariant) -> Unit
 ) {
     var localServer by remember { mutableStateOf(server) }
     var localToken by remember { mutableStateOf(token) }
     var localUser by remember { mutableStateOf(sshUser) }
     var localFont by remember { mutableStateOf(terminalFontSize) }
+    var localFontPack by remember(terminalFontPack) { mutableStateOf(terminalFontPack) }
     var localConfirm by remember { mutableStateOf(confirmMultilinePaste) }
     var localPolicy by remember { mutableStateOf(reconnectPolicy) }
     var localThemeVariant by remember(themeVariant) { mutableStateOf(themeVariant) }
@@ -503,8 +510,8 @@ private fun SettingsScreen(
     var testingConnection by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(localServer, localToken, localUser, localFont, localConfirm, localPolicy, localThemeVariant) {
-        onChange(localServer, localToken, localUser, localFont, localConfirm, localPolicy, localThemeVariant)
+    LaunchedEffect(localServer, localToken, localUser, localFont, localFontPack, localConfirm, localPolicy, localThemeVariant) {
+        onChange(localServer, localToken, localUser, localFont, localFontPack, localConfirm, localPolicy, localThemeVariant)
     }
 
     Scaffold(
@@ -645,6 +652,30 @@ private fun SettingsScreen(
                                 checked = localConfirm,
                                 onCheckedChange = { localConfirm = it }
                             )
+                        }
+                    )
+                    ListItem(
+                        colors = zagoraListItemColors(),
+                        headlineContent = { Text("Terminal font", color = MaterialTheme.colorScheme.onSurface) },
+                        supportingContent = { Text(localFontPack.title, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        trailingContent = {
+                            SingleChoiceSegmentedButtonRow {
+                                SegmentedButton(
+                                    selected = localFontPack == TerminalFontPack.System,
+                                    onClick = { localFontPack = TerminalFontPack.System },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                                ) { Text("Sys") }
+                                SegmentedButton(
+                                    selected = localFontPack == TerminalFontPack.JetBrains,
+                                    onClick = { localFontPack = TerminalFontPack.JetBrains },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                                ) { Text("JB") }
+                                SegmentedButton(
+                                    selected = localFontPack == TerminalFontPack.JetBrainsNerd,
+                                    onClick = { localFontPack = TerminalFontPack.JetBrainsNerd },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                                ) { Text("Nerd") }
+                            }
                         }
                     )
                     ListItem(
@@ -903,6 +934,7 @@ private fun AttachScreen(
     onToggleStickyCtrl: () -> Unit,
     onToggleStickyAlt: () -> Unit,
     initialFontSize: Float,
+    terminalFontPack: TerminalFontPack,
     confirmMultilinePaste: Boolean,
     onAppBackground: () -> Unit,
     onAppForeground: () -> Unit
@@ -967,6 +999,7 @@ private fun AttachScreen(
     }
 
     val terminalPalette = terminalColorPalette()
+    val terminalTypefaceFamily = remember(terminalFontPack) { terminalFontFamily(terminalFontPack) }
     val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
         term.renderAnnotated(terminalPalette)
     }
@@ -980,6 +1013,9 @@ private fun AttachScreen(
         term.resize(cols, rows)
         renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
+    }
+    LaunchedEffect(terminalFontPack) {
+        term.setAllowPrivateUseGlyphs(terminalFontPack == TerminalFontPack.JetBrainsNerd)
     }
 
     LaunchedEffect(attachState.output, followOutput) {
@@ -1220,7 +1256,7 @@ private fun AttachScreen(
                             .verticalScroll(outputScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         color = MaterialTheme.colorScheme.onBackground,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = terminalTypefaceFamily,
                         fontSize = terminalFontSize.sp,
                         lineHeight = (terminalFontSize + 6f).sp,
                         softWrap = true

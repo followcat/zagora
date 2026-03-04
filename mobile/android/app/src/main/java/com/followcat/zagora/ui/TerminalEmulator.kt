@@ -54,7 +54,8 @@ data class TerminalColorPalette(
 class TerminalEmulator(
     cols: Int = 100,
     rows: Int = 36,
-    private val scrollbackLimit: Int = 1500
+    private val scrollbackLimit: Int = 1500,
+    private var allowPrivateUseGlyphs: Boolean = false
 ) {
     private enum class ParseState { NORMAL, ESCAPE, CSI, OSC, CHARSET }
 
@@ -96,6 +97,10 @@ class TerminalEmulator(
         currentFg = AnsiColor.DEFAULT
         currentBg = AnsiColor.DEFAULT
         decLineDrawing = false
+    }
+
+    fun setAllowPrivateUseGlyphs(enabled: Boolean) {
+        allowPrivateUseGlyphs = enabled
     }
 
     fun resize(newCols: Int, newRows: Int) {
@@ -406,7 +411,7 @@ class TerminalEmulator(
         // Replacement char usually means decoding mismatch in upstream chunks.
         if (ch == '\uFFFD') return '?'
         // Private Use Area (e.g., nerd-font glyphs) often renders as boxes on Android.
-        if (ch.code in 0xE000..0xF8FF) return ' '
+        if (!allowPrivateUseGlyphs && ch.code in 0xE000..0xF8FF) return ' '
         // Zero-width or formatting marks can produce visual artifacts in monospaced terminal view.
         val type = Character.getType(ch)
         if (type == Character.FORMAT.toInt()) return ' '

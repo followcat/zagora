@@ -10,6 +10,7 @@ private const val KEY_TERM_FONT_SIZE = "term_font_size"
 private const val KEY_CONFIRM_MULTI_PASTE = "confirm_multi_paste"
 private const val KEY_RECONNECT_POLICY = "reconnect_policy"
 private const val KEY_THEME_VARIANT = "theme_variant"
+private const val KEY_TERM_FONT_PACK = "term_font_pack"
 private const val KEY_SESSION_SSH_USER_PREFIX = "session_ssh_user_"
 private const val KEY_SESSION_SSH_PASS_PREFIX = "session_ssh_pass_"
 
@@ -23,6 +24,7 @@ class SettingsStore(context: Context) {
     fun loadConfirmMultilinePaste(): Boolean = prefs.getBoolean(KEY_CONFIRM_MULTI_PASTE, true)
     fun loadReconnectPolicy(): String = prefs.getString(KEY_RECONNECT_POLICY, "manual") ?: "manual"
     fun loadThemeVariant(): String = prefs.getString(KEY_THEME_VARIANT, "neon") ?: "neon"
+    fun loadTerminalFontPack(): String = prefs.getString(KEY_TERM_FONT_PACK, "system") ?: "system"
 
     fun save(server: String, token: String, sshUser: String) {
         prefs.edit()
@@ -32,11 +34,17 @@ class SettingsStore(context: Context) {
             .apply()
     }
 
-    fun saveTerminalPrefs(fontSize: Float, confirmMultilinePaste: Boolean, reconnectPolicy: String = "manual") {
+    fun saveTerminalPrefs(
+        fontSize: Float,
+        confirmMultilinePaste: Boolean,
+        reconnectPolicy: String = "manual",
+        terminalFontPack: String = "system"
+    ) {
         prefs.edit()
             .putFloat(KEY_TERM_FONT_SIZE, fontSize.coerceIn(11f, 18f))
             .putBoolean(KEY_CONFIRM_MULTI_PASTE, confirmMultilinePaste)
             .putString(KEY_RECONNECT_POLICY, reconnectPolicy)
+            .putString(KEY_TERM_FONT_PACK, terminalFontPack)
             .apply()
     }
 
