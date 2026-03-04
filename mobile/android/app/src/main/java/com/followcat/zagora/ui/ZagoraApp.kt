@@ -37,13 +37,19 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -398,26 +404,38 @@ private fun SettingsScreen(
     var localFont by remember { mutableStateOf(terminalFontSize) }
     var localConfirm by remember { mutableStateOf(confirmMultilinePaste) }
     var localPolicy by remember { mutableStateOf(reconnectPolicy) }
+    val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(localServer, localToken, localUser, localFont, localConfirm, localPolicy) {
         onChange(localServer, localToken, localUser, localFont, localConfirm, localPolicy)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xFF111827).copy(alpha = 0.94f)
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = onBack, colors = zagoraTonalButtonColors()) { Text("Back") }
-                        Text("Settings", color = Color(0xFFF8FAFC), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Text("←", color = Color(0xFFE2E8F0), fontWeight = FontWeight.Bold)
                     }
+                }
+            )
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Server", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         value = localServer,
@@ -430,10 +448,20 @@ private fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         value = localToken,
                         onValueChange = { localToken = it },
-                        label = { Text("Bearer Token") },
+                        label = { Text("Bearer Token (optional)") },
                         singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
                         colors = zagoraFieldColors()
                     )
+                }
+            }
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("SSH", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         value = localUser,
@@ -442,33 +470,92 @@ private fun SettingsScreen(
                         singleLine = true,
                         colors = zagoraFieldColors()
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FilledTonalButton(
-                            onClick = { localFont = (localFont - 1f).coerceAtLeast(11f) },
-                            colors = zagoraTonalButtonColors()
-                        ) { Text("A-") }
-                        FilledTonalButton(
-                            onClick = { localFont = (localFont + 1f).coerceAtMost(18f) },
-                            colors = zagoraTonalButtonColors()
-                        ) { Text("A+") }
-                        Text("Font ${localFont.toInt()}sp", color = Color(0xFF94A3B8))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(
-                            onClick = { localConfirm = !localConfirm },
-                            colors = zagoraTonalButtonColors()
-                        ) { Text(if (localConfirm) "Paste Confirm: ON" else "Paste Confirm: OFF") }
-                        FilledTonalButton(
-                            onClick = { localPolicy = if (localPolicy == "auto3") "manual" else "auto3" },
-                            colors = zagoraTonalButtonColors()
-                        ) { Text("Reconnect: $localPolicy") }
-                    }
-                    Text("Auto-saved", color = Color(0xFF94A3B8), style = MaterialTheme.typography.labelMedium)
                 }
+            }
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Terminal", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    ListItem(
+                        colors = zagoraListItemColors(),
+                        headlineContent = { Text("Font size", color = Color(0xFFE2E8F0)) },
+                        supportingContent = { Text("${localFont.toInt()}sp", color = Color(0xFF94A3B8)) },
+                        trailingContent = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                FilledTonalButton(
+                                    onClick = { localFont = (localFont - 1f).coerceAtLeast(11f) },
+                                    colors = zagoraTonalButtonColors()
+                                ) { Text("A-") }
+                                FilledTonalButton(
+                                    onClick = { localFont = (localFont + 1f).coerceAtMost(18f) },
+                                    colors = zagoraTonalButtonColors()
+                                ) { Text("A+") }
+                            }
+                        }
+                    )
+                    ListItem(
+                        colors = zagoraListItemColors(),
+                        headlineContent = { Text("Paste confirm", color = Color(0xFFE2E8F0)) },
+                        supportingContent = { Text("Confirm before multi-line paste", color = Color(0xFF94A3B8)) },
+                        trailingContent = {
+                            Switch(
+                                checked = localConfirm,
+                                onCheckedChange = { localConfirm = it }
+                            )
+                        }
+                    )
+                }
+            }
+
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Connection", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("Reconnect policy", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.bodyMedium)
+                    SingleChoiceSegmentedButtonRow {
+                        SegmentedButton(
+                            selected = localPolicy == "manual",
+                            onClick = { localPolicy = "manual" },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                        ) {
+                            Text("Manual")
+                        }
+                        SegmentedButton(
+                            selected = localPolicy == "auto3",
+                            onClick = { localPolicy = "auto3" },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                        ) {
+                            Text("Auto")
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF1E293B).copy(alpha = 0.92f)
+            ) {
+                Text(
+                    "Auto-saved",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    color = Color(0xFFCBD5E1),
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
     }
 }
+
+@Composable
+private fun zagoraListItemColors() = androidx.compose.material3.ListItemDefaults.colors(
+    containerColor = Color.Transparent
+)
 
 @Composable
 private fun SessionCard(
