@@ -394,6 +394,7 @@ private fun SessionsScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun SettingsScreen(
     server: String,
     token: String,
