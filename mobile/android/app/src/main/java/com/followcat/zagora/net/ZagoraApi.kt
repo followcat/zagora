@@ -10,7 +10,9 @@ import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Body
 import retrofit2.http.Path
+import retrofit2.http.POST
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
@@ -23,7 +25,16 @@ interface ZagoraApi {
         @Path("name") name: String,
         @Query("host") host: String
     )
+
+    @POST("sessions")
+    suspend fun createSession(@Body body: CreateSessionRequest): Session
 }
+
+data class CreateSessionRequest(
+    val name: String,
+    val host: String,
+    val status: String = "running"
+)
 
 object ZagoraApiFactory {
     fun create(server: String, token: String?): ZagoraApi {

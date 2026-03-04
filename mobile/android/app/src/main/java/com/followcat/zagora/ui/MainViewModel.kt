@@ -64,5 +64,20 @@ class MainViewModel : ViewModel() {
             }
         }
     }
-}
 
+    suspend fun createSession(server: String, token: String, name: String, host: String): Result<Session> {
+        return runCatching {
+            val repo = ZagoraRepository(server, token)
+            repo.createSession(name = name, host = host)
+        }.onSuccess { created ->
+            _uiState.value = _uiState.value.copy(
+                sessions = listOf(created) + _uiState.value.sessions.filterNot { it.name == created.name && it.host == created.host },
+                message = "Created ${created.name}@${created.host}"
+            )
+        }.onFailure { err ->
+            _uiState.value = _uiState.value.copy(
+                message = "Create failed: ${err.message ?: err::class.simpleName}"
+            )
+        }
+    }
+}

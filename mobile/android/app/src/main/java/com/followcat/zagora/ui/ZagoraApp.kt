@@ -36,8 +36,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -108,25 +108,6 @@ private enum class MobileScreen {
     Settings
 }
 
-private enum class SessionScopeFilter(val label: String) {
-    All("All"),
-    Prod("Prod"),
-    Staging("Staging"),
-    Dev("Dev"),
-    Offline("Offline");
-
-    fun matches(session: Session): Boolean {
-        val h = session.host.lowercase()
-        return when (this) {
-            All -> true
-            Prod -> "prod" in h
-            Staging -> "stag" in h
-            Dev -> ("dev" in h) || ("test" in h)
-            Offline -> session.hostReachable == false || session.status.lowercase() != "running"
-        }
-    }
-}
-
 @Composable
 fun ZagoraApp(
     vm: MainViewModel = viewModel(),
@@ -134,6 +115,7 @@ fun ZagoraApp(
 ) {
     val ctx = LocalContext.current
     val store = remember { SettingsStore(ctx) }
+    val uiScope = rememberCoroutineScope()
     val ui by vm.uiState.collectAsState()
     val attachState by attachVm.state.collectAsState()
     val sticky by attachVm.sticky.collectAsState()
@@ -147,7 +129,6 @@ fun ZagoraApp(
     var reconnectPolicy by remember { mutableStateOf(store.loadReconnectPolicy()) }
     var screen by remember { mutableStateOf(MobileScreen.Sessions) }
     var attachTarget by remember { mutableStateOf<Session?>(null) }
-    var scopeFilter by remember { mutableStateOf(SessionScopeFilter.All) }
 
     val ok = MaterialTheme.colorScheme.primary
     val warn = Color(0xFFF59E0B)
@@ -219,17 +200,25 @@ fun ZagoraApp(
         when (screen) {
             MobileScreen.Sessions -> SessionsScreen(
                 ui = ui,
-                sessions = ui.sessions.filter { scopeFilter.matches(it) }.filter { s ->
+                sessions = ui.sessions.filter { s ->
                     if (hostFilter.isBlank()) true
                     else s.name.contains(hostFilter, ignoreCase = true) || s.host.contains(hostFilter, ignoreCase = true)
                 },
                 serverConfigured = server.isNotBlank(),
                 hostFilter = hostFilter,
-                scopeFilter = scopeFilter,
-                onScopeFilterChange = { scopeFilter = it },
                 onHostFilterChange = { hostFilter = it },
                 onRefresh = { vm.loadSessions(server, token, "") },
                 onGoSettings = { screen = MobileScreen.Settings },
+                onCreateSession = { name, host ->
+                    if (server.isBlank()) return@SessionsScreen
+                    uiScope.launch {
+                        val result = vm.createSession(server, token, name, host)
+                        result.getOrNull()?.let { created ->
+                            attachVm.disconnect()
+                            attachTarget = created
+                        }
+                    }
+                },
                 onAttachSession = { session ->
                     attachVm.disconnect()
                     attachTarget = session
@@ -274,19 +263,25 @@ private fun SessionsScreen(
     sessions: List<Session>,
     serverConfigured: Boolean,
     hostFilter: String,
-    scopeFilter: SessionScopeFilter,
-    onScopeFilterChange: (SessionScopeFilter) -> Unit,
     onHostFilterChange: (String) -> Unit,
     onRefresh: () -> Unit,
     onGoSettings: () -> Unit,
+    onCreateSession: (name: String, host: String) -> Unit,
     onAttachSession: (Session) -> Unit,
     onOpenSsh: (Session) -> Unit,
     onDelete: (Session) -> Unit,
     okColor: Color,
     warnColor: Color
 ) {
+    val clipboard = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
     val pullState = rememberPullToRefreshState()
+    var showCreateSheet by remember { mutableStateOf(false) }
+    var newSessionName by remember { mutableStateOf("") }
+    var newSessionHost by remember { mutableStateOf("") }
+    val knownHosts = remember(sessions) {
+        sessions.map { it.host.trim() }.filter { it.isNotBlank() }.distinct()
+    }
 
     LaunchedEffect(ui.message) {
         if (ui.message.isNotBlank()) {
@@ -332,6 +327,21 @@ private fun SessionsScreen(
                 }
             )
         },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    if (!serverConfigured) return@FloatingActionButton
+                    if (newSessionHost.isBlank()) {
+                        newSessionHost = knownHosts.firstOrNull().orEmpty()
+                    }
+                    showCreateSheet = true
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Text("New")
+            }
+        },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
         PullToRefreshBox(
@@ -372,28 +382,6 @@ private fun SessionsScreen(
                         colors = zagoraFieldColors()
                     )
                 }
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SessionScopeFilter.entries.forEach { chip ->
-                            FilterChip(
-                                selected = scopeFilter == chip,
-                                onClick = { onScopeFilterChange(chip) },
-                                label = { Text(chip.label) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF0E7490),
-                                    selectedLabelColor = Color(0xFFECFEFF),
-                                    containerColor = Color(0xFF334155),
-                                    labelColor = Color(0xFFF8FAFC)
-                                )
-                            )
-                        }
-                    }
-                }
                 item { HorizontalDivider(color = Color(0xFF334155)) }
                 if (screenState == "Empty") {
                     item {
@@ -407,14 +395,72 @@ private fun SessionsScreen(
                     }
                 }
                 items(sessions) { session ->
-                    SessionCard(
+                    SessionRow(
                         session = session,
                         okColor = okColor,
                         warnColor = warnColor,
                         onAttach = { onAttachSession(session) },
                         onOpenSsh = { onOpenSsh(session) },
-                        onDelete = { onDelete(session) }
+                        onDelete = { onDelete(session) },
+                        onCopy = {
+                            clipboard.setText(AnnotatedString("${session.name}@${session.host}"))
+                        }
                     )
+                }
+            }
+        }
+
+        if (showCreateSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showCreateSheet = false },
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("New Session", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    OutlinedTextField(
+                        value = newSessionName,
+                        onValueChange = { newSessionName = it },
+                        label = { Text("Session name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = zagoraFieldColors()
+                    )
+                    OutlinedTextField(
+                        value = newSessionHost,
+                        onValueChange = { newSessionHost = it },
+                        label = { Text("Host") },
+                        singleLine = true,
+                        placeholder = { Text(knownHosts.firstOrNull() ?: "e.g. v100") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = zagoraFieldColors()
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CompactTonalButton(
+                            text = "Cancel",
+                            onClick = { showCreateSheet = false }
+                        )
+                        CompactFilledButton(
+                            text = "Open",
+                            onClick = {
+                                val name = newSessionName.trim()
+                                val host = newSessionHost.trim().ifBlank { knownHosts.firstOrNull().orEmpty() }
+                                if (name.isBlank() || host.isBlank()) return@CompactFilledButton
+                                onCreateSession(name, host)
+                                showCreateSheet = false
+                                newSessionName = ""
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -650,47 +696,79 @@ private suspend fun probeHealth(baseUrl: String, token: String): Pair<Boolean, S
 }
 
 @Composable
-private fun SessionCard(
+private fun SessionRow(
     session: Session,
     okColor: Color,
     warnColor: Color,
     onAttach: () -> Unit,
     onOpenSsh: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onCopy: () -> Unit
 ) {
     var menuExpanded by remember(session.host, session.name) { mutableStateOf(false) }
     var showDeleteConfirm by remember(session.host, session.name) { mutableStateOf(false) }
-    Card(
+
+    val statusColor = if (session.status.equals("running", ignoreCase = true)) okColor else warnColor
+    val statusText = session.status.ifBlank { "unknown" }
+    val seenAgo = session.lastSeen?.takeIf { it.isNotBlank() }?.let { " · ${_shortLabelTime(it)}" }.orEmpty()
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onAttach),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A).copy(alpha = 0.94f))
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "${session.name} @ ${session.host}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFFF1F5F9),
-                    fontWeight = FontWeight.SemiBold
-                )
+        ListItem(
+            colors = zagoraListItemColors(),
+            headlineContent = {
+                Text(session.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            },
+            supportingContent = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(statusColor, CircleShape)
+                    )
+                    Text(
+                        "${session.host} · $statusText$seenAgo",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            trailingContent = {
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Session actions",
-                            tint = Color(0xFFCBD5E1)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("Open SSH") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenSsh()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Copy") },
+                            onClick = {
+                                menuExpanded = false
+                                onCopy()
+                            }
+                        )
                         DropdownMenuItem(
                             text = { Text("Remove") },
                             onClick = {
@@ -701,33 +779,7 @@ private fun SessionCard(
                     }
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusBadge(
-                    text = session.status.ifBlank { "unknown" },
-                    bg = if (session.status == "running") okColor else warnColor
-                )
-                if (session.hostReachable != null) {
-                    StatusBadge(
-                        text = if (session.hostReachable == true) "host: up" else "host: down",
-                        bg = if (session.hostReachable == false) warnColor else okColor
-                    )
-                }
-            }
-            session.lastSeen?.takeIf { it.isNotBlank() }?.let {
-                Spacer(Modifier.height(6.dp))
-                Text("last_seen: $it", color = Color(0xFF94A3B8))
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onAttach, colors = zagoraPrimaryButtonColors()) {
-                    Text("Attach")
-                }
-                FilledTonalButton(onClick = onOpenSsh, colors = zagoraTonalButtonColors()) {
-                    Text("Open SSH")
-                }
-            }
-        }
+        )
     }
 
     if (showDeleteConfirm) {
@@ -736,19 +788,16 @@ private fun SessionCard(
             title = { Text("Remove session") },
             text = { Text("Delete ${session.name} from registry?") },
             confirmButton = {
-                Button(
+                CompactFilledButton(
+                    text = "Remove",
                     onClick = {
                         showDeleteConfirm = false
                         onDelete()
-                    },
-                    colors = zagoraPrimaryButtonColors()
-                ) { Text("Remove") }
+                    }
+                )
             },
             dismissButton = {
-                TextButton(
-                    onClick = { showDeleteConfirm = false },
-                    colors = zagoraDangerTextButtonColors()
-                ) { Text("Cancel") }
+                CompactTonalButton(text = "Cancel", onClick = { showDeleteConfirm = false })
             }
         )
     }
@@ -1375,6 +1424,11 @@ private fun phaseColor(phase: com.followcat.zagora.data.AttachPhase): Color = wh
     com.followcat.zagora.data.AttachPhase.Error -> Color(0xFFFCA5A5)
     com.followcat.zagora.data.AttachPhase.Disconnected -> Color(0xFF94A3B8)
     com.followcat.zagora.data.AttachPhase.Idle -> Color(0xFF94A3B8)
+}
+
+private fun _shortLabelTime(raw: String): String {
+    val s = raw.trim().replace("T", " ")
+    return if (s.length >= 16) s.substring(5, 16) else s
 }
 
 private fun buildTerminalAnnotated(text: String): AnnotatedString {
