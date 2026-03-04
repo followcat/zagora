@@ -816,7 +816,6 @@ private fun AttachScreen(
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
-    val outputXScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 100, rows = 36) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
@@ -1064,13 +1063,12 @@ private fun AttachScreen(
                                 }
                             )
                             .verticalScroll(outputScroll)
-                            .horizontalScroll(outputXScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         color = MaterialTheme.colorScheme.onBackground,
                         fontFamily = FontFamily.Monospace,
                         fontSize = terminalFontSize.sp,
                         lineHeight = (terminalFontSize + 6f).sp,
-                        softWrap = false
+                        softWrap = true
                     )
                 }
             }
