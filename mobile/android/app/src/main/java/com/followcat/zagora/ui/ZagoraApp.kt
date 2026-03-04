@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -890,30 +891,29 @@ private fun AttachScreen(
                             FilledTonalButton(onClick = onSendArrowUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("↑") }
                             FilledTonalButton(onClick = onSendArrowRight, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("→") }
                         }
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            FilledTonalButton(onClick = onSendPageUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGUP") }
-                            FilledTonalButton(onClick = onSendPageDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGDN") }
-                            FilledTonalButton(onClick = onSendHome, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("HOME") }
-                            FilledTonalButton(onClick = onSendEnd, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("END") }
-                            FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }, colors = zagoraTonalButtonColors()) { Text("COPY") }
-                            FilledTonalButton(
-                                onClick = {
-                                    val clip = clipboard.getText()?.text?.toString().orEmpty()
-                                    if (clip.isEmpty()) return@FilledTonalButton
-                                    if (confirmMultilinePaste && clip.contains('\n')) {
-                                        pendingPaste = clip
-                                        showPasteConfirm = true
-                                    } else {
-                                        onPasteRaw(clip)
-                                    }
-                                },
-                                enabled = attachState.connected,
-                                colors = zagoraTonalButtonColors()
-                            ) { Text("PASTE") }
-                            FilledTonalButton(onClick = onDisconnect, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("DETACH") }
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            item { FilledTonalButton(onClick = onSendPageUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGUP") } }
+                            item { FilledTonalButton(onClick = onSendPageDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGDN") } }
+                            item { FilledTonalButton(onClick = onSendHome, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("HOME") } }
+                            item { FilledTonalButton(onClick = onSendEnd, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("END") } }
+                            item { FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }, colors = zagoraTonalButtonColors()) { Text("COPY") } }
+                            item {
+                                FilledTonalButton(
+                                    onClick = {
+                                        val clip = clipboard.getText()?.text?.toString().orEmpty()
+                                        if (clip.isEmpty()) return@FilledTonalButton
+                                        if (confirmMultilinePaste && clip.contains('\n')) {
+                                            pendingPaste = clip
+                                            showPasteConfirm = true
+                                        } else {
+                                            onPasteRaw(clip)
+                                        }
+                                    },
+                                    enabled = attachState.connected,
+                                    colors = zagoraTonalButtonColors()
+                                ) { Text("PASTE") }
+                            }
+                            item { FilledTonalButton(onClick = onDisconnect, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("DETACH") } }
                         }
                     }
                 }
