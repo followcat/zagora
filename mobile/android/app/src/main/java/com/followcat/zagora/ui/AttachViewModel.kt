@@ -15,6 +15,10 @@ class AttachViewModel : ViewModel() {
     private val _sticky = MutableStateFlow(StickyModifiers())
     val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
 
+    fun setReconnectPolicy(policy: String) {
+        repo.setReconnectPolicy(policy)
+    }
+
     fun connect(host: String, user: String, password: String, sessionName: String) {
         viewModelScope.launch {
             repo.connect(host = host, user = user, password = password, sessionName = sessionName)

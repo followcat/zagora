@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,8 +75,19 @@ class SshAttachRepository(
     @Volatile
     private var shellInput: java.io.OutputStream? = null
     private var readJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var reconnectPolicy: String = "manual"
+    private var manualDisconnect = false
+    private var lastHost: String = ""
+    private var lastUser: String = ""
+    private var lastPassword: String = ""
+    private var lastSessionName: String = ""
 
-    suspend fun connect(host: String, user: String, password: String, sessionName: String) {
+    fun setReconnectPolicy(policy: String) {
+        reconnectPolicy = policy
+    }
+
+    suspend fun connect(host: String, user: String, password: String, sessionName: String, isReconnect: Boolean = false) {
         val cleanHost = host.trim()
         val cleanUser = user.trim()
         val cleanSession = sessionName.trim()
@@ -95,7 +107,16 @@ class SshAttachRepository(
             }
             return
         }
+        if (!isReconnect) {
+            reconnectJob?.cancel()
+            reconnectJob = null
+        }
         disconnect(updateState = false)
+        manualDisconnect = false
+        lastHost = cleanHost
+        lastUser = cleanUser
+        lastPassword = password
+        lastSessionName = cleanSession
         val startAt = System.currentTimeMillis()
         _state.value = AttachState(
             host = cleanHost,
@@ -103,10 +124,10 @@ class SshAttachRepository(
             user = cleanUser,
             connecting = true,
             connected = false,
-            phase = AttachPhase.Connecting,
+            phase = if (isReconnect) AttachPhase.Reconnecting else AttachPhase.Connecting,
             errorCode = AttachErrorCode.None,
             canRetry = false,
-            message = "Connecting $cleanUser@$cleanHost ..."
+            message = if (isReconnect) "Reconnecting $cleanUser@$cleanHost ..." else "Connecting $cleanUser@$cleanHost ..."
         )
 
         runCatching {
@@ -200,6 +221,9 @@ class SshAttachRepository(
     }
 
     fun disconnect(updateState: Boolean = true) {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        manualDisconnect = true
         readJob?.cancel()
         readJob = null
         runCatching { shellInput?.close() }
@@ -257,9 +281,51 @@ class SshAttachRepository(
                 it.copy(
                     connected = false,
                     connecting = false,
-                    phase = AttachPhase.Disconnected,
+                    phase = if (reconnectPolicy == "auto3" && !manualDisconnect) AttachPhase.Reconnecting else AttachPhase.Disconnected,
                     canRetry = true,
                     message = "Disconnected"
+                )
+            }
+            if (!manualDisconnect && reconnectPolicy == "auto3") {
+                startReconnectLoop()
+            }
+        }
+    }
+
+    private fun startReconnectLoop() {
+        if (lastHost.isBlank() || lastUser.isBlank()) return
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            for (attempt in 1..3) {
+                _state.update {
+                    it.copy(
+                        phase = AttachPhase.Reconnecting,
+                        connecting = true,
+                        connected = false,
+                        canRetry = false,
+                        message = "Reconnecting ($attempt/3) ..."
+                    )
+                }
+                delay((attempt * 1000L).coerceAtMost(4_000L))
+                runCatching {
+                    connect(
+                        host = lastHost,
+                        user = lastUser,
+                        password = lastPassword,
+                        sessionName = lastSessionName,
+                        isReconnect = true
+                    )
+                }.onSuccess {
+                    if (_state.value.connected) return@launch
+                }
+            }
+            _state.update {
+                it.copy(
+                    phase = AttachPhase.Disconnected,
+                    connecting = false,
+                    connected = false,
+                    canRetry = true,
+                    message = "Reconnect failed. Tap Retry."
                 )
             }
         }
