@@ -814,12 +814,18 @@ private fun AttachScreen(
     var selectionMode by remember(target.host, target.name) { mutableStateOf(false) }
     var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
+    var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
     val outputXScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 100, rows = 36) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
+
+    val manualDetach: () -> Unit = {
+        suppressAutoReconnect = true
+        onDisconnect()
+    }
 
     DisposableEffect(lifecycleOwner, target.host, target.name) {
         val observer = LifecycleEventObserver { _, event ->
@@ -869,6 +875,16 @@ private fun AttachScreen(
         showTransientStats = true
         delay(2000)
         showTransientStats = false
+    }
+    LaunchedEffect(attachState.phase, attachState.message, user, password) {
+        if (attachState.phase != com.followcat.zagora.data.AttachPhase.Disconnected) return@LaunchedEffect
+        if (!attachState.message.contains("Detached", ignoreCase = true)) return@LaunchedEffect
+        if (suppressAutoReconnect) {
+            suppressAutoReconnect = false
+            return@LaunchedEffect
+        }
+        delay(500)
+        onConnect(user.trim(), password)
     }
     LaunchedEffect(target.host, target.name) {
         if (user.isBlank()) {
@@ -1018,7 +1034,7 @@ private fun AttachScreen(
                                     }
                                 )
                             }
-                            item { KeyPill(label = "DETACH", enabled = attachState.connected, onClick = onDisconnect) }
+                            item { KeyPill(label = "DETACH", enabled = attachState.connected, onClick = manualDetach) }
                         }
                     }
                 }
@@ -1207,7 +1223,7 @@ private fun AttachScreen(
         DropdownMenuItem(
             text = { Text("Detach") },
             onClick = {
-                onDisconnect()
+                manualDetach()
                 menuExpanded = false
             }
         )
