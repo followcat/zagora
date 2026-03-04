@@ -9,6 +9,10 @@ import com.jcraft.jsch.JSchException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 class ZagoraRepository(
     private val server: String,
@@ -33,11 +37,27 @@ class ZagoraRepository(
             }
         }.getOrElse { err ->
             val root = rootCause(err)
-            if (root is JSchException && root.message?.contains("auth fail", ignoreCase = true) == true) {
-                throw IllegalStateException("SSH auth failed for $user@$host")
+            if (root is JSchException) {
+                val msg = root.message?.lowercase().orEmpty()
+                when {
+                    "auth fail" in msg || "authentication failed" in msg -> {
+                        throw IllegalStateException("SSH auth failed for $user@$host")
+                    }
+                    "unknownhostexception" in msg ||
+                        "connection refused" in msg ||
+                        "timeout" in msg ||
+                        "no route to host" in msg -> Unit // stale-clean path
+                    else -> throw IllegalStateException("Remote kill failed: ${root.message ?: "ssh error"}")
+                }
+            } else if (root is UnknownHostException ||
+                root is ConnectException ||
+                root is NoRouteToHostException ||
+                root is SocketTimeoutException
+            ) {
+                Unit // stale-clean path
+            } else {
+                throw IllegalStateException("Remote kill failed: ${root.message ?: root::class.simpleName}")
             }
-            // Same as CLI stale-clean behavior for unreachable hosts: ignore and remove stale registry entry.
-            Unit
         }
         api.deleteSession(name = name, host = host)
     }
