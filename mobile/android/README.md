@@ -83,6 +83,25 @@ bash scripts/verify_android_env.sh
 - 多行粘贴默认二次确认（可在 Settings 面板中关闭）。
 - 顶部展示流量统计（`in/out` 字节）和错误码，便于诊断连通性问题。
 
+## Settings 独立页面
+
+- Sessions 页右侧入口进入独立 `Settings` 页面。
+- 可配置：
+  - Registry：`Base URL / Token`
+  - SSH：`Default SSH User`
+  - Terminal：字体大小、多行粘贴确认
+  - Lifecycle：重连策略 `manual / auto3`
+- 保存后会同时更新连接层重连策略（下次 connect 生效）。
+
+## Sessions Filter Chips
+
+Sessions 页面新增快捷筛选：
+- `All`
+- `Prod`（host 含 `prod`）
+- `Staging`（host 含 `stag`）
+- `Dev`（host 含 `dev/test`）
+- `Offline`（`host_reachable=false` 或 `status!=running`）
+
 ## Attach 快捷键与触摸操作（当前版本）
 
 在 Attach 页面已内置快捷操作栏：

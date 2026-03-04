@@ -5,13 +5,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +26,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -62,6 +62,30 @@ import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
 import kotlinx.coroutines.launch
 
+private enum class MobileScreen {
+    Sessions,
+    Settings
+}
+
+private enum class SessionScopeFilter(val label: String) {
+    All("All"),
+    Prod("Prod"),
+    Staging("Staging"),
+    Dev("Dev"),
+    Offline("Offline");
+
+    fun matches(session: Session): Boolean {
+        val h = session.host.lowercase()
+        return when (this) {
+            All -> true
+            Prod -> "prod" in h
+            Staging -> "stag" in h
+            Dev -> ("dev" in h) || ("test" in h)
+            Offline -> session.hostReachable == false || session.status.lowercase() != "running"
+        }
+    }
+}
+
 @Composable
 fun ZagoraApp(
     vm: MainViewModel = viewModel(),
@@ -79,14 +103,20 @@ fun ZagoraApp(
     var sshUser by remember { mutableStateOf(store.loadSshUser()) }
     var terminalFontSizePref by remember { mutableStateOf(store.loadTerminalFontSize()) }
     var confirmMultilinePaste by remember { mutableStateOf(store.loadConfirmMultilinePaste()) }
-    var showSettings by remember { mutableStateOf(false) }
+    var reconnectPolicy by remember { mutableStateOf(store.loadReconnectPolicy()) }
+    var screen by remember { mutableStateOf(MobileScreen.Sessions) }
     var attachTarget by remember { mutableStateOf<Session?>(null) }
+    var scopeFilter by remember { mutableStateOf(SessionScopeFilter.All) }
 
     val topBg = Color(0xFF0F172A)
     val bottomBg = Color(0xFF1F2937)
     val accent = Color(0xFF06B6D4)
     val ok = Color(0xFF10B981)
     val warn = Color(0xFFF59E0B)
+
+    LaunchedEffect(reconnectPolicy) {
+        attachVm.setReconnectPolicy(reconnectPolicy)
+    }
 
     MaterialTheme {
         val bgModifier = Modifier
@@ -107,6 +137,7 @@ fun ZagoraApp(
                             sshUser = user
                             store.save(server, token, sshUser)
                         }
+                        attachVm.setReconnectPolicy(reconnectPolicy)
                         attachVm.connect(
                             host = attachTarget!!.host,
                             user = user,
@@ -142,198 +173,298 @@ fun ZagoraApp(
                         store.saveTerminalPrefs(
                             fontSize = terminalFontSizePref,
                             confirmMultilinePaste = confirmMultilinePaste,
-                            reconnectPolicy = store.loadReconnectPolicy()
+                            reconnectPolicy = reconnectPolicy
                         )
                     }
                 )
             }
         } else {
-            Box(modifier = bgModifier) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            when (screen) {
+                MobileScreen.Sessions -> SessionsScreen(
+                    ui = ui,
+                    sessions = ui.sessions.filter { scopeFilter.matches(it) }.filter { s ->
+                        if (hostFilter.isBlank()) true
+                        else s.name.contains(hostFilter, ignoreCase = true) || s.host.contains(hostFilter, ignoreCase = true)
+                    },
+                    server = server,
+                    token = token,
+                    hostFilter = hostFilter,
+                    scopeFilter = scopeFilter,
+                    onScopeFilterChange = { scopeFilter = it },
+                    onServerChange = { server = it },
+                    onTokenChange = { token = it },
+                    onHostFilterChange = { hostFilter = it },
+                    onLoad = { vm.loadSessions(server, token, "") },
+                    onSave = { store.save(server, token, sshUser) },
+                    onGoSettings = { screen = MobileScreen.Settings },
+                    onAttachSession = { session ->
+                        attachVm.disconnect()
+                        attachTarget = session
+                    },
+                    onOpenSsh = { session -> openInExternalSshApp(ctx, session.host, sshUser) },
+                    onDelete = { session -> vm.deleteSession(server, token, session) },
+                    okColor = ok,
+                    warnColor = warn,
+                    accent = accent
+                )
+                MobileScreen.Settings -> SettingsScreen(
+                    server = server,
+                    token = token,
+                    sshUser = sshUser,
+                    terminalFontSize = terminalFontSizePref,
+                    confirmMultilinePaste = confirmMultilinePaste,
+                    reconnectPolicy = reconnectPolicy,
+                    onBack = { screen = MobileScreen.Sessions },
+                    onSave = { newServer, newToken, newUser, newFont, newConfirm, newPolicy ->
+                        server = newServer
+                        token = newToken
+                        sshUser = newUser
+                        terminalFontSizePref = newFont
+                        confirmMultilinePaste = newConfirm
+                        reconnectPolicy = newPolicy
+                        attachVm.setReconnectPolicy(reconnectPolicy)
+                        store.save(server, token, sshUser)
+                        store.saveTerminalPrefs(
+                            fontSize = terminalFontSizePref,
+                            confirmMultilinePaste = confirmMultilinePaste,
+                            reconnectPolicy = reconnectPolicy
+                        )
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionsScreen(
+    ui: UiState,
+    sessions: List<Session>,
+    server: String,
+    token: String,
+    hostFilter: String,
+    scopeFilter: SessionScopeFilter,
+    onScopeFilterChange: (SessionScopeFilter) -> Unit,
+    onServerChange: (String) -> Unit,
+    onTokenChange: (String) -> Unit,
+    onHostFilterChange: (String) -> Unit,
+    onLoad: () -> Unit,
+    onSave: () -> Unit,
+    onGoSettings: () -> Unit,
+    onAttachSession: (Session) -> Unit,
+    onOpenSsh: (Session) -> Unit,
+    onDelete: (Session) -> Unit,
+    okColor: Color,
+    warnColor: Color,
+    accent: Color
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF111827).copy(alpha = 0.94f),
+                    tonalElevation = 2.dp
                 ) {
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF111827).copy(alpha = 0.94f),
-                        tonalElevation = 2.dp
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Zagora Mobile",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = Color(0xFFF8FAFC),
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Session control with external SSH handoff",
-                                color = Color(0xFFE2E8F0)
-                            )
-                        }
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Sessions",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color(0xFFF8FAFC),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "List -> Attach -> Terminal",
+                            color = Color(0xFFE2E8F0)
+                        )
                     }
                 }
-
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        color = Color(0xFF111827).copy(alpha = 0.90f),
-                        tonalElevation = 1.dp
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            OutlinedTextField(
-                                modifier = Modifier.fillMaxWidth(),
-                                value = server,
-                                onValueChange = { server = it },
-                                label = { Text("Server (http://host:9876)") },
-                                singleLine = true,
-                                colors = zagoraFieldColors()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                modifier = Modifier.fillMaxWidth(),
-                                value = token,
-                                onValueChange = { token = it },
-                                label = { Text("Token (optional)") },
-                                singleLine = true,
-                                colors = zagoraFieldColors()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                modifier = Modifier.fillMaxWidth(),
-                                value = sshUser,
-                                onValueChange = { sshUser = it },
-                                label = { Text("SSH user (optional)") },
-                                singleLine = true,
-                                colors = zagoraFieldColors()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                modifier = Modifier.fillMaxWidth(),
-                                value = hostFilter,
-                                onValueChange = { hostFilter = it },
-                                label = { Text("Host filter (optional)") },
-                                singleLine = true,
-                                colors = zagoraFieldColors()
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilledTonalButton(
-                                    onClick = { store.save(server, token, sshUser) },
-                                    colors = zagoraTonalButtonColors()
-                                ) {
-                                    Text("Save")
-                                }
-                                Button(
-                                    onClick = { vm.loadSessions(server, token, hostFilter) },
-                                    colors = zagoraPrimaryButtonColors()
-                                ) {
-                                    Text("Load Sessions")
-                                }
-                                FilledTonalButton(
-                                    onClick = { showSettings = !showSettings },
-                                    colors = zagoraTonalButtonColors()
-                                ) {
-                                    Text("Settings")
-                                }
-                            }
-                            AnimatedVisibility(visible = showSettings) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text("Terminal Preferences", color = Color(0xFFE2E8F0), fontWeight = FontWeight.SemiBold)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        FilledTonalButton(
-                                            onClick = {
-                                                terminalFontSizePref = (terminalFontSizePref - 1f).coerceAtLeast(11f)
-                                                store.saveTerminalPrefs(
-                                                    fontSize = terminalFontSizePref,
-                                                    confirmMultilinePaste = confirmMultilinePaste,
-                                                    reconnectPolicy = store.loadReconnectPolicy()
-                                                )
-                                            },
-                                            colors = zagoraTonalButtonColors()
-                                        ) { Text("A-") }
-                                        FilledTonalButton(
-                                            onClick = {
-                                                terminalFontSizePref = (terminalFontSizePref + 1f).coerceAtMost(18f)
-                                                store.saveTerminalPrefs(
-                                                    fontSize = terminalFontSizePref,
-                                                    confirmMultilinePaste = confirmMultilinePaste,
-                                                    reconnectPolicy = store.loadReconnectPolicy()
-                                                )
-                                            },
-                                            colors = zagoraTonalButtonColors()
-                                        ) { Text("A+") }
-                                        FilledTonalButton(
-                                            onClick = {
-                                                confirmMultilinePaste = !confirmMultilinePaste
-                                                store.saveTerminalPrefs(
-                                                    fontSize = terminalFontSizePref,
-                                                    confirmMultilinePaste = confirmMultilinePaste,
-                                                    reconnectPolicy = store.loadReconnectPolicy()
-                                                )
-                                            },
-                                            colors = zagoraTonalButtonColors()
-                                        ) {
-                                            Text(if (confirmMultilinePaste) "Paste Confirm: ON" else "Paste Confirm: OFF")
-                                        }
-                                    }
-                                    Text(
-                                        "Reconnect policy: manual",
-                                        color = Color(0xFF94A3B8),
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        color = if (ui.loading) accent.copy(alpha = 0.22f) else Color(0xFF0B1220).copy(alpha = 0.80f)
-                    ) {
+            }
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xFF111827).copy(alpha = 0.90f),
+                    tonalElevation = 1.dp
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = server,
+                            onValueChange = onServerChange,
+                            label = { Text("Server (http://host:9876)") },
+                            singleLine = true,
+                            colors = zagoraFieldColors()
+                        )
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = token,
+                            onValueChange = onTokenChange,
+                            label = { Text("Token (optional)") },
+                            singleLine = true,
+                            colors = zagoraFieldColors()
+                        )
+                        OutlinedTextField(
+                            modifier = Modifier.fillMaxWidth(),
+                            value = hostFilter,
+                            onValueChange = onHostFilterChange,
+                            label = { Text("Search by session / host") },
+                            singleLine = true,
+                            colors = zagoraFieldColors()
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (ui.loading) {
-                                CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
+                            SessionScopeFilter.entries.forEach { chip ->
+                                FilterChip(
+                                    selected = scopeFilter == chip,
+                                    onClick = { onScopeFilterChange(chip) },
+                                    label = { Text(chip.label) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF0E7490),
+                                        selectedLabelColor = Color(0xFFECFEFF),
+                                        containerColor = Color(0xFF334155),
+                                        labelColor = Color(0xFFF8FAFC)
+                                    )
+                                )
                             }
-                            Text(
-                                text = if (ui.message.isBlank()) "Ready" else ui.message,
-                                color = Color.White
-                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = onSave, colors = zagoraTonalButtonColors()) { Text("Save") }
+                            Button(onClick = onLoad, colors = zagoraPrimaryButtonColors()) { Text("Load Sessions") }
+                            FilledTonalButton(onClick = onGoSettings, colors = zagoraTonalButtonColors()) { Text("Settings") }
                         }
                     }
                 }
+            }
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (ui.loading) accent.copy(alpha = 0.22f) else Color(0xFF0B1220).copy(alpha = 0.80f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (ui.loading) {
+                            CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
+                        }
+                        Text(text = if (ui.message.isBlank()) "Ready" else ui.message, color = Color.White)
+                    }
+                }
+            }
+            items(sessions) { session ->
+                SessionCard(
+                    session = session,
+                    okColor = okColor,
+                    warnColor = warnColor,
+                    onAttach = { onAttachSession(session) },
+                    onOpenSsh = { onOpenSsh(session) },
+                    onDelete = { onDelete(session) }
+                )
+            }
+        }
+    }
+}
 
-                    items(ui.sessions) { session ->
-                        SessionCard(
-                            session = session,
-                            okColor = ok,
-                            warnColor = warn,
-                            onAttach = {
-                                attachVm.disconnect()
-                                attachTarget = session
-                            },
-                            onOpenSsh = { openInExternalSshApp(ctx, session.host, sshUser) },
-                            onDelete = { vm.deleteSession(server, token, session) }
-                        )
+@Composable
+private fun SettingsScreen(
+    server: String,
+    token: String,
+    sshUser: String,
+    terminalFontSize: Float,
+    confirmMultilinePaste: Boolean,
+    reconnectPolicy: String,
+    onBack: () -> Unit,
+    onSave: (String, String, String, Float, Boolean, String) -> Unit
+) {
+    var localServer by remember { mutableStateOf(server) }
+    var localToken by remember { mutableStateOf(token) }
+    var localUser by remember { mutableStateOf(sshUser) }
+    var localFont by remember { mutableStateOf(terminalFontSize) }
+    var localConfirm by remember { mutableStateOf(confirmMultilinePaste) }
+    var localPolicy by remember { mutableStateOf(reconnectPolicy) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFF111827).copy(alpha = 0.94f)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = onBack, colors = zagoraTonalButtonColors()) { Text("Back") }
+                        Text("Settings", color = Color(0xFFF8FAFC), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                    }
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = localServer,
+                        onValueChange = { localServer = it },
+                        label = { Text("Base URL") },
+                        singleLine = true,
+                        colors = zagoraFieldColors()
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = localToken,
+                        onValueChange = { localToken = it },
+                        label = { Text("Bearer Token") },
+                        singleLine = true,
+                        colors = zagoraFieldColors()
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = localUser,
+                        onValueChange = { localUser = it },
+                        label = { Text("Default SSH User") },
+                        singleLine = true,
+                        colors = zagoraFieldColors()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FilledTonalButton(
+                            onClick = { localFont = (localFont - 1f).coerceAtLeast(11f) },
+                            colors = zagoraTonalButtonColors()
+                        ) { Text("A-") }
+                        FilledTonalButton(
+                            onClick = { localFont = (localFont + 1f).coerceAtMost(18f) },
+                            colors = zagoraTonalButtonColors()
+                        ) { Text("A+") }
+                        Text("Font ${localFont.toInt()}sp", color = Color(0xFF94A3B8))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(
+                            onClick = { localConfirm = !localConfirm },
+                            colors = zagoraTonalButtonColors()
+                        ) { Text(if (localConfirm) "Paste Confirm: ON" else "Paste Confirm: OFF") }
+                        FilledTonalButton(
+                            onClick = { localPolicy = if (localPolicy == "auto3") "manual" else "auto3" },
+                            colors = zagoraTonalButtonColors()
+                        ) { Text("Reconnect: $localPolicy") }
+                    }
+                    Button(
+                        onClick = { onSave(localServer, localToken, localUser, localFont, localConfirm, localPolicy) },
+                        colors = zagoraPrimaryButtonColors()
+                    ) {
+                        Text("Save Settings")
                     }
                 }
             }
