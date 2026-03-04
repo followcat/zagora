@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,6 +58,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material.icons.Icons
@@ -75,7 +77,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -148,9 +149,7 @@ fun ZagoraApp(
     var attachTarget by remember { mutableStateOf<Session?>(null) }
     var scopeFilter by remember { mutableStateOf(SessionScopeFilter.All) }
 
-    val topBg = Color(0xFF0F172A)
-    val bottomBg = Color(0xFF1F2937)
-    val ok = Color(0xFF10B981)
+    val ok = MaterialTheme.colorScheme.primary
     val warn = Color(0xFFF59E0B)
 
     LaunchedEffect(reconnectPolicy) {
@@ -162,113 +161,108 @@ fun ZagoraApp(
         }
     }
 
-    MaterialTheme {
-        val bgModifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(colors = listOf(topBg, bottomBg)))
-        if (attachTarget != null) {
-            val savedSessionSsh = store.loadSessionSsh(attachTarget!!.host, attachTarget!!.name)
-            Box(modifier = bgModifier) {
-                AttachScreen(
-                    target = attachTarget!!,
-                    attachState = attachState,
-                    initialUser = savedSessionSsh.first.ifBlank { sshUser },
-                    initialPassword = savedSessionSsh.second,
-                    onBack = {
-                        attachVm.disconnect()
-                        attachTarget = null
-                    },
-                    onConnect = { user, password ->
-                        if (user.isNotBlank()) {
-                            sshUser = user
-                            store.save(server, token, sshUser)
-                        }
-                        attachVm.setReconnectPolicy(reconnectPolicy)
-                        attachVm.connect(
-                            host = attachTarget!!.host,
-                            user = user,
-                            password = password,
-                            sessionName = attachTarget!!.name
-                        )
-                        store.saveSessionSsh(
-                            host = attachTarget!!.host,
-                            session = attachTarget!!.name,
-                            sshUser = user,
-                            sshPassword = password
-                        )
-                    },
-                    onDisconnect = { attachVm.disconnect() },
-                    onSendCtrlC = { attachVm.sendCtrlC() },
-                    onSendTab = { attachVm.sendTab() },
-                    onSendEsc = { attachVm.sendEscape() },
-                    onSendArrowUp = { attachVm.sendArrowUp() },
-                    onSendArrowDown = { attachVm.sendArrowDown() },
-                    onSendArrowLeft = { attachVm.sendArrowLeft() },
-                    onSendArrowRight = { attachVm.sendArrowRight() },
-                    onSendPageUp = { attachVm.sendPageUp() },
-                    onSendPageDown = { attachVm.sendPageDown() },
-                    onSendHome = { attachVm.sendHome() },
-                    onSendEnd = { attachVm.sendEnd() },
-                    onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
-                    stickyCtrl = sticky.ctrl,
-                    stickyAlt = sticky.alt,
-                    onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
-                    onToggleStickyAlt = { attachVm.toggleStickyAlt() },
-                    initialFontSize = terminalFontSizePref,
-                    confirmMultilinePaste = confirmMultilinePaste,
-                    onAppBackground = { attachVm.onAppBackground() },
-                    onAppForeground = { attachVm.onAppForeground() }
-                )
-            }
-        } else {
-            when (screen) {
-                MobileScreen.Sessions -> SessionsScreen(
-                    ui = ui,
-                    sessions = ui.sessions.filter { scopeFilter.matches(it) }.filter { s ->
-                        if (hostFilter.isBlank()) true
-                        else s.name.contains(hostFilter, ignoreCase = true) || s.host.contains(hostFilter, ignoreCase = true)
-                    },
-                    serverConfigured = server.isNotBlank(),
-                    hostFilter = hostFilter,
-                    scopeFilter = scopeFilter,
-                    onScopeFilterChange = { scopeFilter = it },
-                    onHostFilterChange = { hostFilter = it },
-                    onRefresh = { vm.loadSessions(server, token, "") },
-                    onGoSettings = { screen = MobileScreen.Settings },
-                    onAttachSession = { session ->
-                        attachVm.disconnect()
-                        attachTarget = session
-                    },
-                    onOpenSsh = { session -> openInExternalSshApp(ctx, session.host, sshUser) },
-                    onDelete = { session -> vm.deleteSession(server, token, session) },
-                    okColor = ok,
-                    warnColor = warn
-                )
-                MobileScreen.Settings -> SettingsScreen(
-                    server = server,
-                    token = token,
-                    sshUser = sshUser,
-                    terminalFontSize = terminalFontSizePref,
-                    confirmMultilinePaste = confirmMultilinePaste,
-                    reconnectPolicy = reconnectPolicy,
-                    onBack = { screen = MobileScreen.Sessions },
-                    onChange = { newServer, newToken, newUser, newFont, newConfirm, newPolicy ->
-                        server = newServer
-                        token = newToken
-                        sshUser = newUser
-                        terminalFontSizePref = newFont
-                        confirmMultilinePaste = newConfirm
-                        reconnectPolicy = newPolicy
-                        attachVm.setReconnectPolicy(reconnectPolicy)
+    if (attachTarget != null) {
+        val savedSessionSsh = store.loadSessionSsh(attachTarget!!.host, attachTarget!!.name)
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            AttachScreen(
+                target = attachTarget!!,
+                attachState = attachState,
+                initialUser = savedSessionSsh.first.ifBlank { sshUser },
+                initialPassword = savedSessionSsh.second,
+                onBack = {
+                    attachVm.disconnect()
+                    attachTarget = null
+                },
+                onConnect = { user, password ->
+                    if (user.isNotBlank()) {
+                        sshUser = user
                         store.save(server, token, sshUser)
-                        store.saveTerminalPrefs(
-                            fontSize = terminalFontSizePref,
-                            confirmMultilinePaste = confirmMultilinePaste,
-                            reconnectPolicy = reconnectPolicy
-                        )
                     }
-                )
-            }
+                    attachVm.setReconnectPolicy(reconnectPolicy)
+                    attachVm.connect(
+                        host = attachTarget!!.host,
+                        user = user,
+                        password = password,
+                        sessionName = attachTarget!!.name
+                    )
+                    store.saveSessionSsh(
+                        host = attachTarget!!.host,
+                        session = attachTarget!!.name,
+                        sshUser = user,
+                        sshPassword = password
+                    )
+                },
+                onDisconnect = { attachVm.disconnect() },
+                onSendCtrlC = { attachVm.sendCtrlC() },
+                onSendTab = { attachVm.sendTab() },
+                onSendEsc = { attachVm.sendEscape() },
+                onSendArrowUp = { attachVm.sendArrowUp() },
+                onSendArrowDown = { attachVm.sendArrowDown() },
+                onSendArrowLeft = { attachVm.sendArrowLeft() },
+                onSendArrowRight = { attachVm.sendArrowRight() },
+                onSendPageUp = { attachVm.sendPageUp() },
+                onSendPageDown = { attachVm.sendPageDown() },
+                onSendHome = { attachVm.sendHome() },
+                onSendEnd = { attachVm.sendEnd() },
+                onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
+                stickyCtrl = sticky.ctrl,
+                stickyAlt = sticky.alt,
+                onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
+                onToggleStickyAlt = { attachVm.toggleStickyAlt() },
+                initialFontSize = terminalFontSizePref,
+                confirmMultilinePaste = confirmMultilinePaste,
+                onAppBackground = { attachVm.onAppBackground() },
+                onAppForeground = { attachVm.onAppForeground() }
+            )
+        }
+    } else {
+        when (screen) {
+            MobileScreen.Sessions -> SessionsScreen(
+                ui = ui,
+                sessions = ui.sessions.filter { scopeFilter.matches(it) }.filter { s ->
+                    if (hostFilter.isBlank()) true
+                    else s.name.contains(hostFilter, ignoreCase = true) || s.host.contains(hostFilter, ignoreCase = true)
+                },
+                serverConfigured = server.isNotBlank(),
+                hostFilter = hostFilter,
+                scopeFilter = scopeFilter,
+                onScopeFilterChange = { scopeFilter = it },
+                onHostFilterChange = { hostFilter = it },
+                onRefresh = { vm.loadSessions(server, token, "") },
+                onGoSettings = { screen = MobileScreen.Settings },
+                onAttachSession = { session ->
+                    attachVm.disconnect()
+                    attachTarget = session
+                },
+                onOpenSsh = { session -> openInExternalSshApp(ctx, session.host, sshUser) },
+                onDelete = { session -> vm.deleteSession(server, token, session) },
+                okColor = ok,
+                warnColor = warn
+            )
+            MobileScreen.Settings -> SettingsScreen(
+                server = server,
+                token = token,
+                sshUser = sshUser,
+                terminalFontSize = terminalFontSizePref,
+                confirmMultilinePaste = confirmMultilinePaste,
+                reconnectPolicy = reconnectPolicy,
+                onBack = { screen = MobileScreen.Sessions },
+                onChange = { newServer, newToken, newUser, newFont, newConfirm, newPolicy ->
+                    server = newServer
+                    token = newToken
+                    sshUser = newUser
+                    terminalFontSizePref = newFont
+                    confirmMultilinePaste = newConfirm
+                    reconnectPolicy = newPolicy
+                    attachVm.setReconnectPolicy(reconnectPolicy)
+                    store.save(server, token, sshUser)
+                    store.saveTerminalPrefs(
+                        fontSize = terminalFontSizePref,
+                        confirmMultilinePaste = confirmMultilinePaste,
+                        reconnectPolicy = reconnectPolicy
+                    )
+                }
+            )
         }
     }
 }
@@ -314,6 +308,12 @@ private fun SessionsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Sessions") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                ),
                 actions = {
                     IconButton(onClick = onRefresh) {
                         Icon(
@@ -451,6 +451,12 @@ private fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Text("←", color = Color(0xFFE2E8F0), fontWeight = FontWeight.Bold)
@@ -907,12 +913,18 @@ private fun AttachScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color(0xFFE2E8F0)
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
@@ -921,7 +933,7 @@ private fun AttachScreen(
                         text = "${terminalState.hostLabel} · ${terminalState.sessionName}",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color(0xFFF8FAFC),
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold
                     )
                 },
@@ -938,14 +950,14 @@ private fun AttachScreen(
                         )
                         Text(
                             text = phaseLabel(attachState.phase),
-                            color = Color(0xFFCBD5E1),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium
                         )
                         IconButton(onClick = { menuExpanded = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Menu",
-                                tint = Color(0xFFE2E8F0)
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -954,7 +966,7 @@ private fun AttachScreen(
         },
         bottomBar = {
             AnimatedVisibility(visible = extraKeysVisible) {
-                Surface(color = Color(0xFF0B1220).copy(alpha = 0.95f)) {
+                Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -965,46 +977,48 @@ private fun AttachScreen(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            FilledTonalButton(onClick = onSendEsc, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("ESC") }
-                            FilledTonalButton(onClick = onSendTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("TAB") }
-                            FilledTonalButton(
-                                onClick = onToggleStickyCtrl,
+                            KeyPill(label = "ESC", enabled = attachState.connected, onClick = onSendEsc)
+                            KeyPill(label = "TAB", enabled = attachState.connected, onClick = onSendTab)
+                            KeyPill(
+                                label = "CTRL*",
+                                latched = stickyCtrl,
                                 enabled = attachState.connected,
-                                colors = if (stickyCtrl) zagoraPrimaryButtonColors() else zagoraTonalButtonColors()
-                            ) { Text("CTRL*") }
-                            FilledTonalButton(
-                                onClick = onToggleStickyAlt,
+                                onClick = onToggleStickyCtrl
+                            )
+                            KeyPill(
+                                label = "ALT*",
+                                latched = stickyAlt,
                                 enabled = attachState.connected,
-                                colors = if (stickyAlt) zagoraPrimaryButtonColors() else zagoraTonalButtonColors()
-                            ) { Text("ALT*") }
-                            FilledTonalButton(onClick = onSendArrowLeft, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("←") }
-                            FilledTonalButton(onClick = onSendArrowDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("↓") }
-                            FilledTonalButton(onClick = onSendArrowUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("↑") }
-                            FilledTonalButton(onClick = onSendArrowRight, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("→") }
+                                onClick = onToggleStickyAlt
+                            )
+                            KeyPill(label = "←", enabled = attachState.connected, onClick = onSendArrowLeft)
+                            KeyPill(label = "↓", enabled = attachState.connected, onClick = onSendArrowDown)
+                            KeyPill(label = "↑", enabled = attachState.connected, onClick = onSendArrowUp)
+                            KeyPill(label = "→", enabled = attachState.connected, onClick = onSendArrowRight)
                         }
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            item { FilledTonalButton(onClick = onSendPageUp, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGUP") } }
-                            item { FilledTonalButton(onClick = onSendPageDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGDN") } }
-                            item { FilledTonalButton(onClick = onSendHome, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("HOME") } }
-                            item { FilledTonalButton(onClick = onSendEnd, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("END") } }
-                            item { FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }, colors = zagoraTonalButtonColors()) { Text("COPY") } }
+                            item { KeyPill(label = "PGUP", enabled = attachState.connected, onClick = onSendPageUp) }
+                            item { KeyPill(label = "PGDN", enabled = attachState.connected, onClick = onSendPageDown) }
+                            item { KeyPill(label = "HOME", enabled = attachState.connected, onClick = onSendHome) }
+                            item { KeyPill(label = "END", enabled = attachState.connected, onClick = onSendEnd) }
+                            item { KeyPill(label = "COPY", onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }) }
                             item {
-                                FilledTonalButton(
+                                KeyPill(
+                                    label = "PASTE",
+                                    enabled = attachState.connected,
                                     onClick = {
                                         val clip = clipboard.getText()?.text?.toString().orEmpty()
-                                        if (clip.isEmpty()) return@FilledTonalButton
+                                        if (clip.isEmpty()) return@KeyPill
                                         if (confirmMultilinePaste && clip.contains('\n')) {
                                             pendingPaste = clip
                                             showPasteConfirm = true
                                         } else {
                                             onPasteRaw(clip)
                                         }
-                                    },
-                                    enabled = attachState.connected,
-                                    colors = zagoraTonalButtonColors()
-                                ) { Text("PASTE") }
+                                    }
+                                )
                             }
-                            item { FilledTonalButton(onClick = onDisconnect, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("DETACH") } }
+                            item { KeyPill(label = "DETACH", enabled = attachState.connected, onClick = onDisconnect) }
                         }
                     }
                 }
@@ -1015,7 +1029,7 @@ private fun AttachScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(Color(0xFF020617))
+                .background(MaterialTheme.colorScheme.background)
         ) {
             Box(
                 modifier = Modifier
@@ -1036,7 +1050,7 @@ private fun AttachScreen(
                             .verticalScroll(outputScroll)
                             .horizontalScroll(outputXScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
-                        color = Color(0xFFE2E8F0),
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontFamily = FontFamily.Monospace,
                         fontSize = terminalFontSize.sp,
                         lineHeight = (terminalFontSize + 6f).sp,
@@ -1053,12 +1067,12 @@ private fun AttachScreen(
             ) {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
-                    color = Color(0xFF111827).copy(alpha = 0.8f)
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
                 ) {
                     Text(
                         text = "in:${terminalState.inBytes} out:${terminalState.outBytes}",
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        color = Color(0xFFCBD5E1),
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
@@ -1070,12 +1084,12 @@ private fun AttachScreen(
                         .align(Alignment.BottomCenter)
                         .padding(bottom = if (extraKeysVisible) 70.dp else 12.dp),
                     shape = RoundedCornerShape(999.dp),
-                    color = Color(0xFF0B1220).copy(alpha = 0.85f)
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                 ) {
                     Text(
                         text = "Tap to focus · Long press to select",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        color = Color(0xFFCBD5E1),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -1087,12 +1101,12 @@ private fun AttachScreen(
                         .align(Alignment.TopCenter)
                         .padding(top = 10.dp),
                     shape = RoundedCornerShape(999.dp),
-                    color = Color(0xFF0E7490).copy(alpha = 0.85f)
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
                 ) {
                     Text(
                         text = attachState.message.ifBlank { "Connecting..." },
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        color = Color(0xFFE0F2FE)
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }
@@ -1103,20 +1117,20 @@ private fun AttachScreen(
                         .align(Alignment.Center)
                         .padding(16.dp),
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF111827).copy(alpha = 0.95f)
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Disconnected", color = Color(0xFFF8FAFC), fontWeight = FontWeight.Bold)
-                        Text(attachState.message, color = Color(0xFFCBD5E1))
+                        Text("Disconnected", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text(attachState.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { onConnect(user.trim(), password) },
-                                colors = zagoraPrimaryButtonColors()
-                            ) { Text("Retry") }
-                            FilledTonalButton(onClick = onBack, colors = zagoraTonalButtonColors()) { Text("Back") }
+                            CompactFilledButton(
+                                text = "Retry",
+                                onClick = { onConnect(user.trim(), password) }
+                            )
+                            CompactTonalButton(text = "Back", onClick = onBack)
                         }
                     }
                 }
@@ -1266,6 +1280,69 @@ private fun AttachScreen(
     }
 }
 
+@Composable
+private fun CompactFilledButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        colors = zagoraPrimaryButtonColors()
+    ) {
+        Text(text, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun CompactTonalButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier.height(40.dp),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        colors = zagoraTonalButtonColors()
+    ) {
+        Text(text, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun KeyPill(
+    label: String,
+    enabled: Boolean = true,
+    latched: Boolean = false,
+    onClick: () -> Unit
+) {
+    val bg = when {
+        !enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        latched -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val fg = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(
+        modifier = Modifier
+            .height(38.dp)
+            .clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = bg
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = fg, fontSize = 12.sp)
+        }
+    }
+}
+
 private fun phaseLabel(phase: com.followcat.zagora.data.AttachPhase): String = when (phase) {
     com.followcat.zagora.data.AttachPhase.Idle -> "Idle"
     com.followcat.zagora.data.AttachPhase.Connecting -> "Connecting"
@@ -1311,33 +1388,33 @@ private fun buildTerminalAnnotated(text: String): AnnotatedString {
 
 @Composable
 private fun zagoraFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color(0xFFE5E7EB),
-    focusedContainerColor = Color(0xFF0B1220),
-    unfocusedContainerColor = Color(0xFF0B1220),
-    cursorColor = Color(0xFF22D3EE),
-    focusedBorderColor = Color(0xFF38BDF8),
-    unfocusedBorderColor = Color(0xFF475569),
-    focusedLabelColor = Color(0xFF93C5FD),
-    unfocusedLabelColor = Color(0xFF94A3B8),
-    focusedPlaceholderColor = Color(0xFF64748B),
-    unfocusedPlaceholderColor = Color(0xFF64748B)
+    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+    focusedContainerColor = MaterialTheme.colorScheme.surface,
+    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+    cursorColor = MaterialTheme.colorScheme.primary,
+    focusedBorderColor = MaterialTheme.colorScheme.primary,
+    unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+    focusedLabelColor = MaterialTheme.colorScheme.primary,
+    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
 )
 
 @Composable
 private fun zagoraPrimaryButtonColors() = ButtonDefaults.buttonColors(
-    containerColor = Color(0xFF22D3EE),
-    contentColor = Color(0xFF032230),
-    disabledContainerColor = Color(0xFF164E63),
-    disabledContentColor = Color(0xFF94A3B8)
+    containerColor = MaterialTheme.colorScheme.primary,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
 )
 
 @Composable
 private fun zagoraTonalButtonColors() = ButtonDefaults.filledTonalButtonColors(
-    containerColor = Color(0xFF334155),
-    contentColor = Color(0xFFF8FAFC),
-    disabledContainerColor = Color(0xFF1E293B),
-    disabledContentColor = Color(0xFF64748B)
+    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    contentColor = MaterialTheme.colorScheme.onSurface,
+    disabledContainerColor = MaterialTheme.colorScheme.surface,
+    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
 )
 
 @Composable
