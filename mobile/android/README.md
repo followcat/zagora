@@ -1,157 +1,131 @@
-# Zagora Android MVP（方案 1）
+# Zagora Android
 
-该模块是 `zagora` 的轻量移动控制端。
+`mobile/android` 是 zagora 的移动端控制器（Jetpack Compose + Retrofit + JSch）。
 
-当前范围：
-- 从 `zagora` 服务端读取会话（`GET /sessions`）
-- 从 registry 删除会话（`DELETE /sessions/{name}?host=...`）
-- 通过 Android Intent 跳转外部 SSH 客户端（`ssh://host`）
-- App 内 Attach（P0）：通过 SSH + PTY 连接并执行 `zellij attach <session>`
+## 当前能力
 
-当前不包含：
-- 完整终端高级交互（快捷键栏/粘贴板增强/重连策略）
-- 在手机上直接执行 `zagora open/sync/refresh` 全流程
+- 会话列表：`GET /sessions`
+- 创建会话记录：`POST /sessions`
+- Remove 语义：先远端 `zellij kill-session`，再删除 registry 记录（等价移动端 kill）
+- App 内 Attach：SSH + PTY + `zellij attach -c <session>`
+- 自动重连策略：`manual / auto3`
+- 终端快捷键栏：`ESC/TAB/CTRL*/ALT*/方向键/PgUp/PgDn/Home/End/Copy/Paste/Detach`
+- 会话级 SSH 记忆：按 `host+session` 保存上次输入的 SSH 用户/密码
+- 终端字体包：`System Mono / JetBrains Mono / JetBrains Mono Nerd`
+- 主题切换：`Neon / Graphite`
 
-## App 内 Attach 研究
+## 不在当前范围
 
-已提供实现方案与分阶段计划：
-- `mobile/android/IN_APP_ATTACH_RESEARCH.md`
+- 在手机端完整执行 `zagora open/sync/refresh` 全 CLI 流程
+- 完整 xterm 协议覆盖（当前已覆盖常见 zellij/htop 场景）
 
-建议按文档中的 P0 -> P1 里程碑推进，先做“可用 attach”，再补体验细节（复制/快捷键/重连）。
+## 构建环境
 
-## 运行
+- JDK 17
+- Android SDK（建议已安装 Build Tools 34+）
+- 可用 `adb`（真机安装/调试时）
 
-1. 用 Android Studio 打开 `mobile/android`（建议 Hedgehog+）。
-2. 等待 Gradle 同步完成。
-3. 在模拟器或真机运行 `app`。
-
-## 构建验证
-
-### 本地（Android Studio / SDK）
-
-1. 使用 JDK 17+（本项目要求 Java 17）。
-2. 确保已安装 Android SDK，且设置了 `ANDROID_SDK_ROOT`。
-3. 运行环境检查：
+环境校验：
 
 ```bash
 cd mobile/android
 bash scripts/verify_android_env.sh
 ```
 
-4. 在 Android Studio 构建：
-- `Build` -> `Make Project`
-- 或 `Build` -> `Build APK(s)`
-
-### CI（GitHub Actions）
-
-工作流：`.github/workflows/android-verify.yml`
-
-在 `mobile/android/**` 相关 `push/PR` 触发，执行：
-- Java 17 环境准备
-- Android SDK 准备
-- 环境检查脚本
-- `gradle :app:assembleDebug`
-
-## 首次使用
-
-1. 填写服务端地址（示例：`http://t14:9876`）
-2. 可选填写 token
-3. 点击 **Save**
-4. 点击 **Load Sessions**
-
-可在每个会话卡片点击 **Open SSH** 跳转外部 SSH 客户端。
-
-## App 内 Attach（P0）使用
-
-1. 在会话卡片点击 **Attach**
-2. 输入 SSH 用户名（和目标机一致），必要时输入密码
-3. 点击 **Connect + Attach**
-4. 连接成功后会自动执行 `zellij attach <session>`
-5. 下方输入框可发送命令，`Ctrl+C` 可中断当前命令
-
-说明：
-- 该版本为 P0，可用性优先；高级终端体验（快捷键栏、粘贴板增强）会在后续 P1 完成。
-- 仍保留 **Open SSH** 作为回退路径。
-
-## Attach UI（P1）更新
-
-- 终端页顶部新增连接状态机标签：`Connecting / Attaching / Connected / Disconnected / Error`。
-- Extra Keys Row 调整为两行默认键位：
-  - Row1: `ESC TAB S-TAB CTRL* ALT* ← ↓ ↑ →`
-  - Row2: `PGUP PGDN HOME END INS DEL COPY PASTE DETACH`
-- `CTRL* / ALT*` 为粘滞键，开启后按钮高亮，下一次发送后自动释放。
-- 多行粘贴默认二次确认（可在 Settings 面板中关闭）。
-- 顶部展示流量统计（`in/out` 字节）和错误码，便于诊断连通性问题。
-- SSH 凭据改为弹窗输入（不再常驻占用终端空间），并按 `host+session` 记住上次输入（user/password）。
-
-## Settings 独立页面
-
-- Sessions 页右侧入口进入独立 `Settings` 页面。
-- 可配置：
-  - Registry：`Base URL / Token`
-  - SSH：`Default SSH User`
-  - Terminal：字体大小、多行粘贴确认
-  - Lifecycle：重连策略 `manual / auto3`
-- 保存后会同时更新连接层重连策略（下次 connect 生效）。
-
-## Sessions IA（V2）
-
-- `Sessions` 页面仅保留：搜索、Filter chips、会话列表、刷新与设置入口。
-- `Server/Token` 配置已移到 `Settings` 页面。
-- 进入 `Sessions` 自动加载；支持顶部刷新与下拉刷新。
-- 未配置 server 时会在列表顶部显示配置引导 banner。
-- 状态提示改为 `Snackbar`，不再占用独立大块卡片空间。
-
-## Sessions Filter Chips
-
-Sessions 页面新增快捷筛选：
-- `All`
-- `Prod`（host 含 `prod`）
-- `Staging`（host 含 `stag`）
-- `Dev`（host 含 `dev/test`）
-- `Offline`（`host_reachable=false` 或 `status!=running`）
-
-## Attach 快捷键与触摸操作（当前版本）
-
-在 Attach 页面已内置快捷操作栏：
-- `Ctrl`: `Ctrl+A / Ctrl+D / Ctrl+L / Ctrl+Z / Ctrl+C`
-- `Alt`: `Alt+B / Alt+F / Alt+D`
-- `Shift`: `Shift+Tab`
-- 其他常用键：`Esc / Tab / Up / Down / Left / Right`
-- 剪贴板：`Copy`（复制输出区内容）、`Paste`（粘贴到命令输入框）、`Paste->Shell`（直接发送到远端 shell）
-
-触摸与滚屏优化：
-- 输出区支持 **文本选择复制**（长按选择）
-- 支持 **纵向滚动 + 横向滚动**（查看长命令行）
-- 提供 `Top / Bottom` 快速跳转
-- `Follow: ON/OFF` 可切换“是否自动跟随最新输出”
-
-## 通过 Wi-Fi 安装到手机（Debug）
-
-1. 手机开启 `USB 调试` 与 `无线调试`
-2. 在 Android Studio Device Manager 完成 Wi-Fi 配对（`Pair using Wi-Fi`）
-3. 在 Android Studio 运行应用，APK 会通过 Wi-Fi 安装
-
-### CLI 安装命令（你当前流程）
+## 本地构建
 
 ```bash
-cd /home/followcat/Projects/zagora/mobile/android
+cd mobile/android
+export ZAGORA_ANDROID_USE_MIRROR=1   # 可选：国内镜像
+export GRADLE_USER_HOME=$PWD/.gradle-home
+./gradlew --no-daemon :app:assembleDebug
+```
+
+## 安装到真机
+
+```bash
+cd mobile/android
 export ANDROID_SDK_ROOT=$HOME/Android/Sdk
 export ANDROID_HOME=$HOME/Android/Sdk
 export GRADLE_USER_HOME=$PWD/.gradle-home
 ./gradlew :app:installDebug
 ```
 
-该命令会将最新 Debug 包直接推送到已配对/已连接设备。
+如果出现 `No connected devices!`，先确认设备已连接：
 
-## 交互打磨流程
+```bash
+adb devices
+```
 
-建议先在 `mobile/web` 快速打磨交互，再同步到 Android：
+## Wi‑Fi 调试（ADB over WLAN）
 
-1. 在 Web（`mobile/web`）先调交互  
-   - 状态流转、文案、按钮优先级、错误反馈
-   - 迭代速度高于 Android 构建安装循环
-2. 将确认后的交互映射到 Android Compose
-3. 通过 `:app:installDebug` 在真机做最终验证
+安卓 11+ 推荐“无线调试”配对：
 
-完整流程见 `mobile/README.md`。
+```bash
+# 1) 手机开发者选项开启“无线调试”，获取 ip:port 与配对码
+adb pair <phone_ip:pair_port>
+# 输入配对码
+
+# 2) 连接调试端口
+adb connect <phone_ip:debug_port>
+adb devices
+```
+
+显示 `device` 后即可继续 `./gradlew :app:installDebug`。
+
+## 使用说明
+
+1. 打开 `Settings` 配置 `Base URL / Token / Default SSH User`
+2. 返回 `Sessions` 页面，应用会自动加载会话列表
+3. 点击某个 session 进入 Attach
+4. 在 Attach 页面输入 SSH 凭据并 `Connect + Attach`
+5. 点击终端区域可呼出系统键盘并直接输入
+
+## 关键交互语义
+
+### Remove（移动端 kill）
+
+- 先 SSH 到目标机执行 `zellij kill-session`（失败回退 `delete-session`）
+- 再删除 registry 记录
+- 网络不可达时可按 stale 记录清理；认证失败会直接报错
+
+### 自动重连
+
+- `manual`：仅手动重连
+- `auto3`：断线后自动最多重试 3 次
+- 应用进入后台会断开当前连接；回到前台按策略执行重连
+
+### 终端输入
+
+- 单击终端：聚焦并弹出系统键盘
+- 长按终端：进入选择/复制模式
+- 快捷键栏用于发送控制键与导航键（含粘滞 `CTRL* / ALT*`）
+
+## 字体与字符显示
+
+- 默认：`System Mono`
+- 推荐：`JetBrains Mono`
+- 如果终端图标/私有区字符显示异常，切换到 `JetBrains Mono Nerd`
+
+字体文件与来源见 [FONTS.md](./FONTS.md)。
+
+## 常见问题
+
+### 1) `CLEARTEXT communication not permitted`
+
+请使用 `https://` 服务地址，或在开发环境按需放开明文策略。
+
+### 2) 构建下载 Gradle 很慢
+
+可启用镜像并复用本地缓存：
+
+```bash
+export ZAGORA_ANDROID_USE_MIRROR=1
+export GRADLE_USER_HOME=$PWD/.gradle-home
+```
+
+### 3) 终端乱码/方块字符
+
+- 先确认远端 `TERM=xterm-256color`
+- 切换字体包为 `JetBrains Mono Nerd`
+- 某些私有控制序列仍可能受远端程序输出方式影响
