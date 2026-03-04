@@ -62,6 +62,8 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -307,8 +309,20 @@ private fun SessionsScreen(
             TopAppBar(
                 title = { Text("Sessions") },
                 actions = {
-                    FilledTonalButton(onClick = onRefresh, colors = zagoraTonalButtonColors()) { Text("↻") }
-                    FilledTonalButton(onClick = onGoSettings, colors = zagoraTonalButtonColors()) { Text("⚙") }
+                    IconButton(onClick = onRefresh) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh sessions",
+                            tint = Color(0xFFE2E8F0)
+                        )
+                    }
+                    IconButton(onClick = onGoSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Open settings",
+                            tint = Color(0xFFE2E8F0)
+                        )
+                    }
                 }
             )
         },
@@ -632,6 +646,8 @@ private fun SessionCard(
     onOpenSsh: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var menuExpanded by remember(session.host, session.name) { mutableStateOf(false) }
+    var showDeleteConfirm by remember(session.host, session.name) { mutableStateOf(false) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -640,27 +656,51 @@ private fun SessionCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A).copy(alpha = 0.94f))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                "${session.name} @ ${session.host}",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFFF1F5F9),
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "${session.name} @ ${session.host}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color(0xFFF1F5F9),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Session actions",
+                            tint = Color(0xFFCBD5E1)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Remove") },
+                            onClick = {
+                                menuExpanded = false
+                                showDeleteConfirm = true
+                            }
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 StatusBadge(
                     text = session.status.ifBlank { "unknown" },
                     bg = if (session.status == "running") okColor else warnColor
                 )
-                val reach = when (session.hostReachable) {
-                    true -> "host: up"
-                    false -> "host: down"
-                    null -> "host: ?"
+                if (session.hostReachable != null) {
+                    StatusBadge(
+                        text = if (session.hostReachable == true) "host: up" else "host: down",
+                        bg = if (session.hostReachable == false) warnColor else okColor
+                    )
                 }
-                StatusBadge(
-                    text = reach,
-                    bg = if (session.hostReachable == false) warnColor else okColor
-                )
             }
             session.lastSeen?.takeIf { it.isNotBlank() }?.let {
                 Spacer(Modifier.height(6.dp))
@@ -671,14 +711,34 @@ private fun SessionCard(
                 Button(onClick = onAttach, colors = zagoraPrimaryButtonColors()) {
                     Text("Attach")
                 }
-                Button(onClick = onOpenSsh, colors = zagoraTonalButtonColors()) {
+                FilledTonalButton(onClick = onOpenSsh, colors = zagoraTonalButtonColors()) {
                     Text("Open SSH")
-                }
-                TextButton(onClick = onDelete, colors = zagoraDangerTextButtonColors()) {
-                    Text("Remove")
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Remove session") },
+            text = { Text("Delete ${session.name} from registry?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = zagoraPrimaryButtonColors()
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirm = false },
+                    colors = zagoraDangerTextButtonColors()
+                ) { Text("Cancel") }
+            }
+        )
     }
 }
 
