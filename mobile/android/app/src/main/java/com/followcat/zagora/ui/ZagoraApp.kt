@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -87,6 +88,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
@@ -212,6 +216,8 @@ fun ZagoraApp(
                     onToggleStickyAlt = { attachVm.toggleStickyAlt() },
                     initialFontSize = terminalFontSizePref,
                     confirmMultilinePaste = confirmMultilinePaste,
+                    onAppBackground = { attachVm.onAppBackground() },
+                    onAppForeground = { attachVm.onAppForeground() }
                 )
             }
         } else {
@@ -785,8 +791,11 @@ private fun AttachScreen(
     onToggleStickyCtrl: () -> Unit,
     onToggleStickyAlt: () -> Unit,
     initialFontSize: Float,
-    confirmMultilinePaste: Boolean
+    confirmMultilinePaste: Boolean,
+    onAppBackground: () -> Unit,
+    onAppForeground: () -> Unit
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
     var user by remember(target.host, target.name) { mutableStateOf(initialUser) }
     var password by remember(target.host, target.name) { mutableStateOf(initialPassword) }
     var showCredentialsDialog by remember(target.host, target.name) { mutableStateOf(false) }
@@ -805,6 +814,20 @@ private fun AttachScreen(
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 100, rows = 36) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
+
+    DisposableEffect(lifecycleOwner, target.host, target.name) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> onAppBackground()
+                Lifecycle.Event.ON_RESUME -> onAppForeground()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(attachState.output) {
         val out = attachState.output

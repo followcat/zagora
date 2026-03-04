@@ -14,14 +14,45 @@ class AttachViewModel : ViewModel() {
     val state: StateFlow<AttachState> = repo.state
     private val _sticky = MutableStateFlow(StickyModifiers())
     val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
+    private var lastConnectParams: ConnectParams? = null
+    private var resumeAfterBackground = false
 
     fun setReconnectPolicy(policy: String) {
         repo.setReconnectPolicy(policy)
     }
 
     fun connect(host: String, user: String, password: String, sessionName: String) {
+        lastConnectParams = ConnectParams(host = host, user = user, password = password, sessionName = sessionName)
+        resumeAfterBackground = false
         viewModelScope.launch {
             repo.connect(host = host, user = user, password = password, sessionName = sessionName)
+        }
+    }
+
+    fun onAppBackground() {
+        val st = state.value
+        val hasTarget = lastConnectParams != null
+        if (!hasTarget) return
+        if (st.connected || st.connecting) {
+            resumeAfterBackground = true
+            repo.disconnect()
+        }
+    }
+
+    fun onAppForeground() {
+        val st = state.value
+        val params = lastConnectParams ?: return
+        if (!resumeAfterBackground) return
+        if (st.connected || st.connecting) return
+        resumeAfterBackground = false
+        viewModelScope.launch {
+            repo.connect(
+                host = params.host,
+                user = params.user,
+                password = params.password,
+                sessionName = params.sessionName,
+                isReconnect = true
+            )
         }
     }
 
@@ -133,6 +164,7 @@ class AttachViewModel : ViewModel() {
     }
 
     fun disconnect() {
+        resumeAfterBackground = false
         repo.disconnect()
     }
 
@@ -140,4 +172,11 @@ class AttachViewModel : ViewModel() {
         repo.close()
         super.onCleared()
     }
+
+    private data class ConnectParams(
+        val host: String,
+        val user: String,
+        val password: String,
+        val sessionName: String
+    )
 }
