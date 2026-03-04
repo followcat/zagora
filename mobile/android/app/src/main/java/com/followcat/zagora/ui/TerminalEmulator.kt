@@ -380,22 +380,37 @@ class TerminalEmulator(
     }
 
     private fun mapChar(ch: Char): Char {
-        if (!decLineDrawing) return ch
-        return when (ch) {
-            'j' -> '\u2518'
-            'k' -> '\u2510'
-            'l' -> '\u250C'
-            'm' -> '\u2514'
-            'n' -> '\u253C'
-            'q' -> '\u2500'
-            't' -> '\u251C'
-            'u' -> '\u2524'
-            'v' -> '\u2534'
-            'w' -> '\u252C'
-            'x' -> '\u2502'
-            '~' -> '\u00B7'
-            else -> ch
+        val safe = sanitizeGlyph(ch)
+        if (!decLineDrawing) return safe
+        return when (safe) {
+            // DEC special graphics fallback to portable ASCII to avoid tofu glyphs.
+            '`' -> '*'
+            'a' -> '#'
+            'f' -> 'o'
+            'g' -> '+'
+            'j', 'k', 'l', 'm', 'n' -> '+'
+            'o', 'p', 'q', 'r', 's' -> '-'
+            't', 'u', 'v', 'w' -> '+'
+            'x' -> '|'
+            'y' -> '<'
+            'z' -> '>'
+            '{' -> 'p'
+            '|' -> '!'
+            '}' -> 'L'
+            '~' -> '.'
+            else -> safe
         }
+    }
+
+    private fun sanitizeGlyph(ch: Char): Char {
+        // Replacement char usually means decoding mismatch in upstream chunks.
+        if (ch == '\uFFFD') return '?'
+        // Private Use Area (e.g., nerd-font glyphs) often renders as boxes on Android.
+        if (ch.code in 0xE000..0xF8FF) return ' '
+        // Zero-width or formatting marks can produce visual artifacts in monospaced terminal view.
+        val type = Character.getType(ch)
+        if (type == Character.FORMAT.toInt()) return ' '
+        return ch
     }
 
     private fun lineFeed() {
