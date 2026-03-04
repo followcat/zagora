@@ -9,6 +9,8 @@ private const val KEY_SSH_USER = "ssh_user"
 private const val KEY_TERM_FONT_SIZE = "term_font_size"
 private const val KEY_CONFIRM_MULTI_PASTE = "confirm_multi_paste"
 private const val KEY_RECONNECT_POLICY = "reconnect_policy"
+private const val KEY_SESSION_SSH_USER_PREFIX = "session_ssh_user_"
+private const val KEY_SESSION_SSH_PASS_PREFIX = "session_ssh_pass_"
 
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -34,5 +36,25 @@ class SettingsStore(context: Context) {
             .putBoolean(KEY_CONFIRM_MULTI_PASTE, confirmMultilinePaste)
             .putString(KEY_RECONNECT_POLICY, reconnectPolicy)
             .apply()
+    }
+
+    fun saveSessionSsh(host: String, session: String, sshUser: String, sshPassword: String) {
+        val key = sessionKey(host, session)
+        prefs.edit()
+            .putString(KEY_SESSION_SSH_USER_PREFIX + key, sshUser.trim())
+            .putString(KEY_SESSION_SSH_PASS_PREFIX + key, sshPassword)
+            .apply()
+    }
+
+    fun loadSessionSsh(host: String, session: String): Pair<String, String> {
+        val key = sessionKey(host, session)
+        val user = prefs.getString(KEY_SESSION_SSH_USER_PREFIX + key, "") ?: ""
+        val pass = prefs.getString(KEY_SESSION_SSH_PASS_PREFIX + key, "") ?: ""
+        return user to pass
+    }
+
+    private fun sessionKey(host: String, session: String): String {
+        val raw = "${host.trim()}__${session.trim()}"
+        return raw.lowercase().replace(Regex("[^a-z0-9_]+"), "_")
     }
 }
