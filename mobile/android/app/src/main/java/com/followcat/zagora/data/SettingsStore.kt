@@ -9,6 +9,7 @@ private const val KEY_SSH_USER = "ssh_user"
 private const val KEY_TERM_FONT_SIZE = "term_font_size"
 private const val KEY_CONFIRM_MULTI_PASTE = "confirm_multi_paste"
 private const val KEY_RECONNECT_POLICY = "reconnect_policy"
+private const val KEY_THEME_VARIANT = "theme_variant"
 private const val KEY_SESSION_SSH_USER_PREFIX = "session_ssh_user_"
 private const val KEY_SESSION_SSH_PASS_PREFIX = "session_ssh_pass_"
 
@@ -21,6 +22,7 @@ class SettingsStore(context: Context) {
     fun loadTerminalFontSize(): Float = prefs.getFloat(KEY_TERM_FONT_SIZE, 14f)
     fun loadConfirmMultilinePaste(): Boolean = prefs.getBoolean(KEY_CONFIRM_MULTI_PASTE, true)
     fun loadReconnectPolicy(): String = prefs.getString(KEY_RECONNECT_POLICY, "manual") ?: "manual"
+    fun loadThemeVariant(): String = prefs.getString(KEY_THEME_VARIANT, "neon") ?: "neon"
 
     fun save(server: String, token: String, sshUser: String) {
         prefs.edit()
@@ -35,6 +37,12 @@ class SettingsStore(context: Context) {
             .putFloat(KEY_TERM_FONT_SIZE, fontSize.coerceIn(11f, 18f))
             .putBoolean(KEY_CONFIRM_MULTI_PASTE, confirmMultilinePaste)
             .putString(KEY_RECONNECT_POLICY, reconnectPolicy)
+            .apply()
+    }
+
+    fun saveThemeVariant(themeVariant: String) {
+        prefs.edit()
+            .putString(KEY_THEME_VARIANT, themeVariant.trim().ifBlank { "neon" })
             .apply()
     }
 

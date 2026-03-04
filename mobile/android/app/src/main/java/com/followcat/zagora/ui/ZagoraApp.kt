@@ -23,9 +23,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -110,7 +112,9 @@ private enum class MobileScreen {
 @Composable
 fun ZagoraApp(
     vm: MainViewModel = viewModel(),
-    attachVm: AttachViewModel = viewModel()
+    attachVm: AttachViewModel = viewModel(),
+    themeVariant: ZagoraThemeVariant = ZagoraThemeVariant.Neon,
+    onThemeVariantChange: (ZagoraThemeVariant) -> Unit = {}
 ) {
     val ctx = LocalContext.current
     val store = remember { SettingsStore(ctx) }
@@ -232,16 +236,19 @@ fun ZagoraApp(
                 terminalFontSize = terminalFontSizePref,
                 confirmMultilinePaste = confirmMultilinePaste,
                 reconnectPolicy = reconnectPolicy,
+                themeVariant = themeVariant,
                 onBack = { screen = MobileScreen.Sessions },
-                onChange = { newServer, newToken, newUser, newFont, newConfirm, newPolicy ->
+                onChange = { newServer, newToken, newUser, newFont, newConfirm, newPolicy, newThemeVariant ->
                     server = newServer
                     token = newToken
                     sshUser = newUser
                     terminalFontSizePref = newFont
                     confirmMultilinePaste = newConfirm
                     reconnectPolicy = newPolicy
+                    onThemeVariantChange(newThemeVariant)
                     attachVm.setReconnectPolicy(reconnectPolicy)
                     store.save(server, token, sshUser)
+                    store.saveThemeVariant(newThemeVariant.id)
                     store.saveTerminalPrefs(
                         fontSize = terminalFontSizePref,
                         confirmMultilinePaste = confirmMultilinePaste,
@@ -471,8 +478,9 @@ private fun SettingsScreen(
     terminalFontSize: Float,
     confirmMultilinePaste: Boolean,
     reconnectPolicy: String,
+    themeVariant: ZagoraThemeVariant,
     onBack: () -> Unit,
-    onChange: (String, String, String, Float, Boolean, String) -> Unit
+    onChange: (String, String, String, Float, Boolean, String, ZagoraThemeVariant) -> Unit
 ) {
     var localServer by remember { mutableStateOf(server) }
     var localToken by remember { mutableStateOf(token) }
@@ -480,12 +488,13 @@ private fun SettingsScreen(
     var localFont by remember { mutableStateOf(terminalFontSize) }
     var localConfirm by remember { mutableStateOf(confirmMultilinePaste) }
     var localPolicy by remember { mutableStateOf(reconnectPolicy) }
+    var localThemeVariant by remember(themeVariant) { mutableStateOf(themeVariant) }
     var tokenVisible by remember { mutableStateOf(false) }
     var testingConnection by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(localServer, localToken, localUser, localFont, localConfirm, localPolicy) {
-        onChange(localServer, localToken, localUser, localFont, localConfirm, localPolicy)
+    LaunchedEffect(localServer, localToken, localUser, localFont, localConfirm, localPolicy, localThemeVariant) {
+        onChange(localServer, localToken, localUser, localFont, localConfirm, localPolicy, localThemeVariant)
     }
 
     Scaffold(
@@ -628,6 +637,25 @@ private fun SettingsScreen(
                             )
                         }
                     )
+                    ListItem(
+                        colors = zagoraListItemColors(),
+                        headlineContent = { Text("Theme style", color = MaterialTheme.colorScheme.onSurface) },
+                        supportingContent = { Text(localThemeVariant.title, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        trailingContent = {
+                            SingleChoiceSegmentedButtonRow {
+                                SegmentedButton(
+                                    selected = localThemeVariant == ZagoraThemeVariant.Neon,
+                                    onClick = { localThemeVariant = ZagoraThemeVariant.Neon },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                                ) { Text("A") }
+                                SegmentedButton(
+                                    selected = localThemeVariant == ZagoraThemeVariant.Graphite,
+                                    onClick = { localThemeVariant = ZagoraThemeVariant.Graphite },
+                                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                                ) { Text("B") }
+                            }
+                        }
+                    )
                 }
             }
 
@@ -719,6 +747,7 @@ private fun SessionRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize()
             .clickable(onClick = onAttach),
         shape = RoundedCornerShape(ZagoraRadius.card),
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -1041,10 +1070,14 @@ private fun AttachScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val phaseDotColor by animateColorAsState(
+                            targetValue = phaseColor(attachState.phase),
+                            label = "phaseDotColor"
+                        )
                         Box(
                             modifier = Modifier
                                 .size(8.dp)
-                                .background(phaseColor(attachState.phase), CircleShape)
+                                .background(phaseDotColor, CircleShape)
                         )
                         Text(
                             text = phaseLabel(attachState.phase),

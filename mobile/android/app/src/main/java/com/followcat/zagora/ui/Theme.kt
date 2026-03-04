@@ -10,7 +10,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-private val ZagoraDarkScheme = darkColorScheme(
+enum class ZagoraThemeVariant(val id: String, val title: String) {
+    Neon("neon", "Neon Terminal"),
+    Graphite("graphite", "Graphite Pro");
+
+    companion object {
+        fun fromId(id: String): ZagoraThemeVariant = entries.firstOrNull { it.id == id } ?: Neon
+    }
+}
+
+private val ZagoraNeonScheme = darkColorScheme(
     background = Color(0xFF0B0F14),
     surface = Color(0xFF0F1621),
     surfaceVariant = Color(0xFF162233),
@@ -25,6 +34,23 @@ private val ZagoraDarkScheme = darkColorScheme(
     tertiary = Color(0xFF7FC5FF),
     error = Color(0xFFFF7E8A),
     onPrimary = Color(0xFF001316),
+)
+
+private val ZagoraGraphiteScheme = darkColorScheme(
+    background = Color(0xFF0C0E12),
+    surface = Color(0xFF141821),
+    surfaceVariant = Color(0xFF1B2230),
+    surfaceContainer = Color(0xFF171D29),
+    surfaceContainerHigh = Color(0xFF1E2737),
+    outline = Color(0xFF3A4659),
+    onBackground = Color(0xFFE9EDF4),
+    onSurface = Color(0xFFE9EDF4),
+    onSurfaceVariant = Color(0xFFC0CAD8),
+    primary = Color(0xFF66E0FF),
+    secondary = Color(0xFF7AB7FF),
+    tertiary = Color(0xFF9EC5FF),
+    error = Color(0xFFFF8B98),
+    onPrimary = Color(0xFF05151B),
 )
 
 private val ZagoraTypography = Typography(
@@ -69,10 +95,15 @@ private val ZagoraTypography = Typography(
 
 @Composable
 fun ZagoraTheme(
+    variant: ZagoraThemeVariant = ZagoraThemeVariant.Neon,
     content: @Composable () -> Unit
 ) {
+    val scheme = when (variant) {
+        ZagoraThemeVariant.Neon -> ZagoraNeonScheme
+        ZagoraThemeVariant.Graphite -> ZagoraGraphiteScheme
+    }
     MaterialTheme(
-        colorScheme = ZagoraDarkScheme,
+        colorScheme = scheme,
         typography = ZagoraTypography,
         content = content
     )
