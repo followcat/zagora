@@ -27,11 +27,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,7 +43,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -147,10 +149,8 @@ fun ZagoraApp(
                         )
                     },
                     onDisconnect = { attachVm.disconnect() },
-                    onSendLine = { line -> attachVm.sendLine(line) },
                     onSendCtrlC = { attachVm.sendCtrlC() },
                     onSendTab = { attachVm.sendTab() },
-                    onSendShiftTab = { attachVm.sendShiftTab() },
                     onSendEsc = { attachVm.sendEscape() },
                     onSendArrowUp = { attachVm.sendArrowUp() },
                     onSendArrowDown = { attachVm.sendArrowDown() },
@@ -546,10 +546,8 @@ private fun AttachScreen(
     onBack: () -> Unit,
     onConnect: (String, String) -> Unit,
     onDisconnect: () -> Unit,
-    onSendLine: (String) -> Unit,
     onSendCtrlC: () -> Unit,
     onSendTab: () -> Unit,
-    onSendShiftTab: () -> Unit,
     onSendEsc: () -> Unit,
     onSendArrowUp: () -> Unit,
     onSendArrowDown: () -> Unit,
@@ -569,17 +567,17 @@ private fun AttachScreen(
 ) {
     var user by remember(target.host, target.name) { mutableStateOf(initialUser) }
     var password by remember(target.host, target.name) { mutableStateOf("") }
-    var command by remember(target.host, target.name) { mutableStateOf("") }
     var showSessionDrawer by remember(target.host, target.name) { mutableStateOf(false) }
     var extraKeysVisible by remember(target.host, target.name) { mutableStateOf(true) }
     var terminalFontSize by remember(target.host, target.name, initialFontSize) { mutableStateOf(initialFontSize) }
     var showPasteConfirm by remember(target.host, target.name) { mutableStateOf(false) }
     var pendingPaste by remember(target.host, target.name) { mutableStateOf("") }
+    var menuExpanded by remember(target.host, target.name) { mutableStateOf(false) }
+    var followOutput by remember(target.host, target.name) { mutableStateOf(true) }
+    var selectionMode by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
     val outputXScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
-    var followOutput by remember(target.host, target.name) { mutableStateOf(true) }
-    val screenScope = rememberCoroutineScope()
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 100, rows = 36) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
@@ -606,219 +604,75 @@ private fun AttachScreen(
             outputScroll.scrollTo(outputScroll.maxValue)
         }
     }
-    val statusText = phaseLabel(attachState.phase)
-    val statusColor = phaseColor(attachState.phase)
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    val connState = remember(attachState.phase, attachState.message) {
+        when (attachState.phase) {
+            com.followcat.zagora.data.AttachPhase.Idle -> ConnState.Idle
+            com.followcat.zagora.data.AttachPhase.Connecting,
+            com.followcat.zagora.data.AttachPhase.Attaching -> ConnState.Connecting
+            com.followcat.zagora.data.AttachPhase.Connected -> ConnState.Connected
+            com.followcat.zagora.data.AttachPhase.Reconnecting -> ConnState.Reconnecting(attempt = 0)
+            com.followcat.zagora.data.AttachPhase.Disconnected,
+            com.followcat.zagora.data.AttachPhase.Error -> ConnState.Disconnected(attachState.message)
+        }
+    }
+    val terminalState = remember(
+        attachState.phase,
+        followOutput,
+        selectionMode,
+        terminalFontSize,
+        attachState.rawBytesIn,
+        attachState.rawBytesOut,
+        stickyCtrl,
+        stickyAlt
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            color = Color(0xFF0B1220).copy(alpha = 0.96f)
-        ) {
-            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        TerminalUiState(
+            hostLabel = target.host,
+            sessionName = target.name,
+            conn = connState,
+            follow = followOutput,
+            selectionMode = selectionMode,
+            fontSizeSp = terminalFontSize.toInt(),
+            inBytes = attachState.rawBytesIn,
+            outBytes = attachState.rawBytesOut,
+            stickyCtrl = stickyCtrl,
+            stickyAlt = stickyAlt
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            Surface(color = Color(0xFF0B1220).copy(alpha = 0.96f)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilledTonalButton(onClick = onBack, colors = zagoraTonalButtonColors()) { Text("Back") }
                     Text(
-                        "${target.host} · ${target.name}",
+                        text = "${terminalState.hostLabel} · ${terminalState.sessionName}",
                         color = Color(0xFFF8FAFC),
                         fontWeight = FontWeight.SemiBold
                     )
-                    StatusBadge(statusText, statusColor)
+                    StatusBadge(phaseLabel(attachState.phase), phaseColor(attachState.phase))
                     FilledTonalButton(
-                        onClick = onDisconnect,
-                        enabled = attachState.connected,
+                        onClick = { menuExpanded = true },
                         colors = zagoraTonalButtonColors()
-                    ) { Text("Detach") }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilledTonalButton(onClick = { showSessionDrawer = !showSessionDrawer }, colors = zagoraTonalButtonColors()) {
-                        Text(if (showSessionDrawer) "Session -" else "Session +")
-                    }
-                    FilledTonalButton(
-                        onClick = { extraKeysVisible = !extraKeysVisible },
-                        colors = zagoraTonalButtonColors()
-                    ) {
-                        Text(if (extraKeysVisible) "Keys -" else "Keys +")
-                    }
-                    FilledTonalButton(
-                        onClick = { onConnect(user.trim(), password) },
-                        enabled = !attachState.connecting,
-                        colors = zagoraTonalButtonColors()
-                    ) { Text("Retry") }
-                }
-                Text(
-                    "user:${user.ifBlank { "<ssh-user>" }} · in:${attachState.rawBytesIn}B out:${attachState.rawBytesOut}B",
-                    color = Color(0xFF94A3B8)
-                )
-            }
-        }
-
-        AnimatedVisibility(visible = showSessionDrawer) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = Color(0xFF0B1220).copy(alpha = 0.92f)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = user,
-                        onValueChange = { user = it },
-                        label = { Text("SSH user") },
-                        singleLine = true,
-                        colors = zagoraFieldColors()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("SSH password (optional)") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        colors = zagoraFieldColors()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = { onConnect(user.trim(), password) },
-                        enabled = !attachState.connecting,
-                        colors = zagoraPrimaryButtonColors()
-                    ) {
-                        Text(if (attachState.connecting) "Connecting..." else "Connect + Attach")
-                    }
+                    ) { Text("⋯") }
                 }
             }
-        }
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF020617).copy(alpha = 0.96f)
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilledTonalButton(onClick = { followOutput = !followOutput }, colors = zagoraTonalButtonColors()) {
-                        Text(if (followOutput) "Follow: ON" else "Follow: OFF")
-                    }
-                    FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }, colors = zagoraTonalButtonColors()) { Text("Copy") }
-                    FilledTonalButton(onClick = { screenScope.launch { outputScroll.scrollTo(outputScroll.maxValue) } }, colors = zagoraTonalButtonColors()) { Text("Bottom") }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = attachState.message.ifBlank { "Ready" },
-                        color = if (attachState.message.contains("fail", true) || attachState.message.contains("error", true)) Color(0xFFFCA5A5) else Color(0xFFE2E8F0)
-                    )
-                    StatusBadge(
-                        text = attachState.errorCode.name,
-                        bg = if (attachState.errorCode == com.followcat.zagora.data.AttachErrorCode.None) Color(0xFF34D399) else Color(0xFFF59E0B)
-                    )
-                }
-                SelectionContainer {
-                    Text(
-                        text = terminalAnnotated,
+        },
+        bottomBar = {
+            AnimatedVisibility(visible = extraKeysVisible) {
+                Surface(color = Color(0xFF0B1220).copy(alpha = 0.95f)) {
+                    Column(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(outputScroll)
-                            .horizontalScroll(outputXScroll)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        color = Color(0xFFE2E8F0),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = terminalFontSize.sp,
-                        lineHeight = (terminalFontSize + 6f).sp,
-                        softWrap = false
-                    )
-                }
-            }
-        }
-
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 230.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = Color(0xFF0B1220).copy(alpha = 0.90f)
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(12.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = command,
-                    onValueChange = { command = it },
-                    label = { Text("Command") },
-                    singleLine = true,
-                    colors = zagoraFieldColors()
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            val cmd = command.trim()
-                            if (cmd.isNotBlank()) {
-                                onSendLine(cmd)
-                                command = ""
-                            }
-                        },
-                        enabled = attachState.connected,
-                        colors = zagoraPrimaryButtonColors()
-                    ) { Text("Send") }
-                    FilledTonalButton(onClick = onSendCtrlC, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+C") }
-                    FilledTonalButton(
-                        onClick = {
-                            val clip = clipboard.getText()?.text?.toString().orEmpty()
-                            if (clip.isEmpty()) return@FilledTonalButton
-                            if (confirmMultilinePaste && clip.contains('\n')) {
-                                pendingPaste = clip
-                                showPasteConfirm = true
-                            } else {
-                                onPasteRaw(clip)
-                            }
-                        },
-                        enabled = attachState.connected,
-                        colors = zagoraTonalButtonColors()
-                    ) { Text("Paste->Shell") }
-                }
-                Spacer(Modifier.height(8.dp))
-                AnimatedVisibility(visible = extraKeysVisible) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -852,41 +706,239 @@ private fun AttachScreen(
                             FilledTonalButton(
                                 onClick = {
                                     val clip = clipboard.getText()?.text?.toString().orEmpty()
-                                    if (clip.isNotBlank()) onPasteRaw(clip)
+                                    if (clip.isEmpty()) return@FilledTonalButton
+                                    if (confirmMultilinePaste && clip.contains('\n')) {
+                                        pendingPaste = clip
+                                        showPasteConfirm = true
+                                    } else {
+                                        onPasteRaw(clip)
+                                    }
                                 },
                                 enabled = attachState.connected,
                                 colors = zagoraTonalButtonColors()
                             ) { Text("PASTE") }
-                            FilledTonalButton(onClick = onSendShiftTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("S-TAB") }
                             FilledTonalButton(onClick = onDisconnect, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("DETACH") }
                         }
                     }
                 }
             }
         }
-
-        if (showPasteConfirm) {
-            AlertDialog(
-                onDismissRequest = { showPasteConfirm = false },
-                title = { Text("Paste confirmation") },
-                text = { Text("Clipboard has multiple lines. Paste to remote shell?") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            onPasteRaw(pendingPaste)
-                            pendingPaste = ""
-                            showPasteConfirm = false
-                        },
-                        colors = zagoraPrimaryButtonColors()
-                    ) { Text("Paste") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showPasteConfirm = false }, colors = zagoraDangerTextButtonColors()) {
-                        Text("Cancel")
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF020617).copy(alpha = 0.97f)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    SelectionContainer {
+                        Text(
+                            text = terminalAnnotated,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(outputScroll)
+                                .horizontalScroll(outputXScroll)
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            color = Color(0xFFE2E8F0),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = terminalFontSize.sp,
+                            lineHeight = (terminalFontSize + 6f).sp,
+                            softWrap = false
+                        )
                     }
                 }
-            )
+            }
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp),
+                shape = RoundedCornerShape(999.dp),
+                color = Color(0xFF111827).copy(alpha = 0.8f)
+            ) {
+                Text(
+                    text = "in:${terminalState.inBytes} out:${terminalState.outBytes}",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    color = Color(0xFFCBD5E1),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+
+            if (terminalState.conn is ConnState.Connecting || terminalState.conn is ConnState.Reconnecting) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color(0xFF0E7490).copy(alpha = 0.85f)
+                ) {
+                    Text(
+                        text = attachState.message.ifBlank { "Connecting..." },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = Color(0xFFE0F2FE)
+                    )
+                }
+            }
+
+            if (terminalState.conn is ConnState.Disconnected && attachState.message.isNotBlank()) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF111827).copy(alpha = 0.95f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Disconnected", color = Color(0xFFF8FAFC), fontWeight = FontWeight.Bold)
+                        Text(attachState.message, color = Color(0xFFCBD5E1))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { onConnect(user.trim(), password) },
+                                colors = zagoraPrimaryButtonColors()
+                            ) { Text("Retry") }
+                            FilledTonalButton(onClick = onBack, colors = zagoraTonalButtonColors()) { Text("Back") }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+        DropdownMenuItem(
+            text = { Text(if (showSessionDrawer) "Hide Session Form" else "Session Form") },
+            onClick = {
+                showSessionDrawer = !showSessionDrawer
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text(if (followOutput) "Follow: ON" else "Follow: OFF") },
+            onClick = {
+                followOutput = !followOutput
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Selection Mode") },
+            onClick = {
+                selectionMode = !selectionMode
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("A-") },
+            onClick = {
+                terminalFontSize = (terminalFontSize - 1f).coerceAtLeast(11f)
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("A+") },
+            onClick = {
+                terminalFontSize = (terminalFontSize + 1f).coerceAtMost(18f)
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Send Ctrl+C") },
+            onClick = {
+                onSendCtrlC()
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Reconnect") },
+            onClick = {
+                onConnect(user.trim(), password)
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text(if (extraKeysVisible) "Hide Keys" else "Show Keys") },
+            onClick = {
+                extraKeysVisible = !extraKeysVisible
+                menuExpanded = false
+            }
+        )
+        DropdownMenuItem(
+            text = { Text("Detach") },
+            onClick = {
+                onDisconnect()
+                menuExpanded = false
+            }
+        )
+    }
+
+    AnimatedVisibility(visible = showSessionDrawer) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xFF0B1220).copy(alpha = 0.95f)
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = user,
+                    onValueChange = { user = it },
+                    label = { Text("SSH user") },
+                    singleLine = true,
+                    colors = zagoraFieldColors()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("SSH password (optional)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = zagoraFieldColors()
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { onConnect(user.trim(), password) },
+                    enabled = !attachState.connecting,
+                    colors = zagoraPrimaryButtonColors()
+                ) {
+                    Text(if (attachState.connecting) "Connecting..." else "Connect + Attach")
+                }
+            }
+        }
+    }
+
+    if (showPasteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showPasteConfirm = false },
+            title = { Text("Paste confirmation") },
+            text = { Text("Clipboard has multiple lines. Paste to remote shell?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onPasteRaw(pendingPaste)
+                        pendingPaste = ""
+                        showPasteConfirm = false
+                    },
+                    colors = zagoraPrimaryButtonColors()
+                ) { Text("Paste") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteConfirm = false }, colors = zagoraDangerTextButtonColors()) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
