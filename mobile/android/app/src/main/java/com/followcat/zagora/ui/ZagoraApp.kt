@@ -959,8 +959,9 @@ private fun AttachScreen(
     val imeFocusRequester = remember(target.host, target.name) { FocusRequester() }
     var imeBuffer by remember(target.host, target.name) { mutableStateOf("") }
     val density = LocalDensity.current
-    val term = remember(target.host, target.name) { TerminalEmulator(cols = 120, rows = 42) }
+    val term = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
+    var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
 
@@ -1004,12 +1005,25 @@ private fun AttachScreen(
         term.renderAnnotated(terminalPalette)
     }
 
-    LaunchedEffect(terminalViewportPx, terminalFontSize) {
+    LaunchedEffect(terminalViewportPx, terminalFontSize, extraKeysVisible) {
         if (terminalViewportPx.width <= 0 || terminalViewportPx.height <= 0) return@LaunchedEffect
-        val charWidthPx = with(density) { (terminalFontSize.sp.toPx() * 0.62f).coerceAtLeast(5f) }
-        val lineHeightPx = with(density) { ((terminalFontSize + 6f).sp.toPx()).coerceAtLeast(9f) }
-        val cols = (terminalViewportPx.width / charWidthPx).toInt().coerceAtLeast(20)
-        val rows = (terminalViewportPx.height / lineHeightPx).toInt().coerceAtLeast(8)
+        val viewportWidth = terminalViewportPx.width.toFloat().coerceAtLeast(1f)
+        val viewportHeight = terminalViewportPx.height.toFloat().coerceAtLeast(1f)
+        val isPortrait = viewportHeight >= viewportWidth
+        val horizontalPaddingPx = with(density) { 20.dp.toPx() }
+        val verticalPaddingPx = with(density) { if (extraKeysVisible) 12.dp.toPx() else 8.dp.toPx() }
+        val availableWidth = (viewportWidth - horizontalPaddingPx).coerceAtLeast(1f)
+        val availableHeight = (viewportHeight - verticalPaddingPx).coerceAtLeast(1f)
+        val charWidthPx = with(density) { (terminalFontSize.sp.toPx() * 0.66f).coerceAtLeast(6f) }
+        val lineHeightPx = with(density) { ((terminalFontSize + 5f).sp.toPx()).coerceAtLeast(10f) }
+        val rawCols = (availableWidth / charWidthPx).toInt()
+        val minCols = if (isPortrait) 34 else 48
+        val maxCols = if (isPortrait) 58 else 120
+        val cols = rawCols.coerceIn(minCols, maxCols)
+        val rows = (availableHeight / lineHeightPx).toInt().coerceAtLeast(10)
+        val grid = IntSize(cols, rows)
+        if (grid == lastAppliedGrid) return@LaunchedEffect
+        lastAppliedGrid = grid
         term.resize(cols, rows)
         renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)

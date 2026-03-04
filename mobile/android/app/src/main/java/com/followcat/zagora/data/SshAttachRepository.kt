@@ -82,9 +82,9 @@ class SshAttachRepository(
     private var reconnectPolicy: String = "manual"
     private var manualDisconnect = false
     @Volatile
-    private var ptyCols: Int = 180
+    private var ptyCols: Int = 64
     @Volatile
-    private var ptyRows: Int = 48
+    private var ptyRows: Int = 24
     @Volatile
     private var ptyPixelWidth: Int = 0
     @Volatile
@@ -391,8 +391,10 @@ class SshAttachRepository(
         val cleanName = sessionName.trim()
         val qName = shellEscape(cleanName)
         val attachCmd = if (cleanName.isBlank()) "\"\$_zg_bin\" attach" else "\"\$_zg_bin\" attach -c $qName"
+        val sttyCmd = "stty cols $ptyCols rows $ptyRows 2>/dev/null || true"
         return (
-            "if command -v zellij >/dev/null 2>&1; then _zg_bin=zellij; " +
+            "$sttyCmd; " +
+                "if command -v zellij >/dev/null 2>&1; then _zg_bin=zellij; " +
                 "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then _zg_bin=\"\$HOME/.local/bin/zellij\"; " +
                 "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; unset _zg_bin; fi; " +
                 "if [ -n \"\$_zg_bin\" ]; then $attachCmd; fi"
