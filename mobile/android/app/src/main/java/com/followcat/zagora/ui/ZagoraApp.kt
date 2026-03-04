@@ -924,18 +924,15 @@ private fun AttachScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .background(Color(0xFF020617))
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(10.dp),
-                color = Color(0xFF020617).copy(alpha = 0.97f)
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    SelectionContainer {
-                        Text(
-                            text = terminalAnnotated,
+                SelectionContainer {
+                    Text(
+                        text = terminalAnnotated,
                         modifier = Modifier
                             .fillMaxSize()
                             .combinedClickable(
@@ -948,13 +945,12 @@ private fun AttachScreen(
                             .verticalScroll(outputScroll)
                             .horizontalScroll(outputXScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
-                            color = Color(0xFFE2E8F0),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = terminalFontSize.sp,
-                            lineHeight = (terminalFontSize + 6f).sp,
-                            softWrap = false
-                        )
-                    }
+                        color = Color(0xFFE2E8F0),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = terminalFontSize.sp,
+                        lineHeight = (terminalFontSize + 6f).sp,
+                        softWrap = false
+                    )
                 }
             }
 
