@@ -138,7 +138,7 @@ class SshAttachRepository(
             reconnectJob?.cancel()
             reconnectJob = null
         }
-        disconnect(updateState = false)
+        disconnect(updateState = false, cancelReconnectJob = !isReconnect)
         manualDisconnect = false
         lastHost = cleanHost
         lastUser = cleanUser
@@ -201,7 +201,7 @@ class SshAttachRepository(
             }
         }.onFailure { err ->
             val (code, readable) = mapError(err)
-            disconnect(updateState = false)
+            disconnect(updateState = false, cancelReconnectJob = !isReconnect)
             _state.update {
                 it.copy(
                     host = cleanHost,
@@ -247,9 +247,11 @@ class SshAttachRepository(
         }
     }
 
-    fun disconnect(updateState: Boolean = true) {
-        reconnectJob?.cancel()
-        reconnectJob = null
+    fun disconnect(updateState: Boolean = true, cancelReconnectJob: Boolean = true) {
+        if (cancelReconnectJob) {
+            reconnectJob?.cancel()
+            reconnectJob = null
+        }
         manualDisconnect = true
         readJob?.cancel()
         readJob = null
