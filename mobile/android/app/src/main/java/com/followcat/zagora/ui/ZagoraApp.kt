@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -164,18 +165,8 @@ fun ZagoraApp(
                     stickyAlt = sticky.alt,
                     onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
                     onToggleStickyAlt = { attachVm.toggleStickyAlt() },
-                    onSendText = { txt -> attachVm.sendKey(TerminalKeyAction.Text(txt)) },
                     initialFontSize = terminalFontSizePref,
                     confirmMultilinePaste = confirmMultilinePaste,
-                    onSaveTerminalPrefs = { font, confirm ->
-                        terminalFontSizePref = font
-                        confirmMultilinePaste = confirm
-                        store.saveTerminalPrefs(
-                            fontSize = terminalFontSizePref,
-                            confirmMultilinePaste = confirmMultilinePaste,
-                            reconnectPolicy = reconnectPolicy
-                        )
-                    }
                 )
             }
         } else {
@@ -573,10 +564,8 @@ private fun AttachScreen(
     stickyAlt: Boolean,
     onToggleStickyCtrl: () -> Unit,
     onToggleStickyAlt: () -> Unit,
-    onSendText: (String) -> Unit,
     initialFontSize: Float,
-    confirmMultilinePaste: Boolean,
-    onSaveTerminalPrefs: (Float, Boolean) -> Unit
+    confirmMultilinePaste: Boolean
 ) {
     var user by remember(target.host, target.name) { mutableStateOf(initialUser) }
     var password by remember(target.host, target.name) { mutableStateOf("") }
@@ -662,16 +651,6 @@ private fun AttachScreen(
                     FilledTonalButton(onClick = { showSessionDrawer = !showSessionDrawer }, colors = zagoraTonalButtonColors()) {
                         Text(if (showSessionDrawer) "Session -" else "Session +")
                     }
-                    FilledTonalButton(onClick = {
-                        terminalFontSize = (terminalFontSize - 1f).coerceAtLeast(11f)
-                        onSaveTerminalPrefs(terminalFontSize, confirmMultilinePaste)
-                    }, colors = zagoraTonalButtonColors()) { Text("A-") }
-                    FilledTonalButton(onClick = {
-                        terminalFontSize = (terminalFontSize + 1f).coerceAtMost(18f)
-                        onSaveTerminalPrefs(terminalFontSize, confirmMultilinePaste)
-                    }, colors = zagoraTonalButtonColors()) {
-                        Text("A+")
-                    }
                     FilledTonalButton(
                         onClick = { extraKeysVisible = !extraKeysVisible },
                         colors = zagoraTonalButtonColors()
@@ -685,7 +664,7 @@ private fun AttachScreen(
                     ) { Text("Retry") }
                 }
                 Text(
-                    "user:${user.ifBlank { "<ssh-user>" }} · ${terminalFontSize.toInt()}sp · in:${attachState.rawBytesIn}B out:${attachState.rawBytesOut}B",
+                    "user:${user.ifBlank { "<ssh-user>" }} · in:${attachState.rawBytesIn}B out:${attachState.rawBytesOut}B",
                     color = Color(0xFF94A3B8)
                 )
             }
@@ -746,9 +725,7 @@ private fun AttachScreen(
                     FilledTonalButton(onClick = { followOutput = !followOutput }, colors = zagoraTonalButtonColors()) {
                         Text(if (followOutput) "Follow: ON" else "Follow: OFF")
                     }
-                    FilledTonalButton(onClick = onSendCtrlC, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("Ctrl+C") }
                     FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }, colors = zagoraTonalButtonColors()) { Text("Copy") }
-                    FilledTonalButton(onClick = { screenScope.launch { outputScroll.scrollTo(0) } }, colors = zagoraTonalButtonColors()) { Text("Top") }
                     FilledTonalButton(onClick = { screenScope.launch { outputScroll.scrollTo(outputScroll.maxValue) } }, colors = zagoraTonalButtonColors()) { Text("Bottom") }
                 }
                 Row(
@@ -786,11 +763,17 @@ private fun AttachScreen(
         }
 
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 230.dp),
             shape = RoundedCornerShape(14.dp),
             color = Color(0xFF0B1220).copy(alpha = 0.90f)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(12.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = command,
@@ -842,7 +825,6 @@ private fun AttachScreen(
                         ) {
                             FilledTonalButton(onClick = onSendEsc, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("ESC") }
                             FilledTonalButton(onClick = onSendTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("TAB") }
-                            FilledTonalButton(onClick = onSendShiftTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("S-TAB") }
                             FilledTonalButton(
                                 onClick = onToggleStickyCtrl,
                                 enabled = attachState.connected,
@@ -866,8 +848,6 @@ private fun AttachScreen(
                             FilledTonalButton(onClick = onSendPageDown, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("PGDN") }
                             FilledTonalButton(onClick = onSendHome, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("HOME") }
                             FilledTonalButton(onClick = onSendEnd, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("END") }
-                            FilledTonalButton(onClick = { onSendText("\u001B[2~") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("INS") }
-                            FilledTonalButton(onClick = { onSendText("\u001B[3~") }, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("DEL") }
                             FilledTonalButton(onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }, colors = zagoraTonalButtonColors()) { Text("COPY") }
                             FilledTonalButton(
                                 onClick = {
@@ -877,6 +857,7 @@ private fun AttachScreen(
                                 enabled = attachState.connected,
                                 colors = zagoraTonalButtonColors()
                             ) { Text("PASTE") }
+                            FilledTonalButton(onClick = onSendShiftTab, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("S-TAB") }
                             FilledTonalButton(onClick = onDisconnect, enabled = attachState.connected, colors = zagoraTonalButtonColors()) { Text("DETACH") }
                         }
                     }
