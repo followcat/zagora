@@ -698,7 +698,7 @@ private fun StatusBadge(text: String, bg: Color) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun AttachScreen(
     target: Session,
@@ -738,6 +738,7 @@ private fun AttachScreen(
     var followOutput by remember(target.host, target.name) { mutableStateOf(true) }
     var selectionMode by remember(target.host, target.name) { mutableStateOf(false) }
     var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
+    var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
     val outputXScroll = rememberScrollState()
     val clipboard = LocalClipboardManager.current
@@ -772,6 +773,13 @@ private fun AttachScreen(
             delay(2500)
             showGestureHint = false
         }
+    }
+    LaunchedEffect(attachState.rawBytesIn, attachState.rawBytesOut) {
+        val hasTraffic = attachState.rawBytesIn > 0 || attachState.rawBytesOut > 0
+        if (!hasTraffic) return@LaunchedEffect
+        showTransientStats = true
+        delay(2000)
+        showTransientStats = false
     }
     LaunchedEffect(target.host, target.name) {
         if (user.isBlank()) {
@@ -954,19 +962,23 @@ private fun AttachScreen(
                 }
             }
 
-            Surface(
+            AnimatedVisibility(
+                visible = showTransientStats,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(10.dp),
-                shape = RoundedCornerShape(999.dp),
-                color = Color(0xFF111827).copy(alpha = 0.8f)
+                    .padding(10.dp)
             ) {
-                Text(
-                    text = "in:${terminalState.inBytes} out:${terminalState.outBytes}",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    color = Color(0xFFCBD5E1),
-                    style = MaterialTheme.typography.labelSmall
-                )
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color(0xFF111827).copy(alpha = 0.8f)
+                ) {
+                    Text(
+                        text = "in:${terminalState.inBytes} out:${terminalState.outBytes}",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        color = Color(0xFFCBD5E1),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
             }
 
             if (showGestureHint) {
@@ -1039,6 +1051,11 @@ private fun AttachScreen(
             }
         )
         DropdownMenuItem(text = { Text("Terminal") }, enabled = false, onClick = {})
+        DropdownMenuItem(
+            text = { Text("Traffic in:${terminalState.inBytes} out:${terminalState.outBytes}") },
+            enabled = false,
+            onClick = {}
+        )
         DropdownMenuItem(
             text = { Text(if (followOutput) "Follow: ON" else "Follow: OFF") },
             onClick = {
