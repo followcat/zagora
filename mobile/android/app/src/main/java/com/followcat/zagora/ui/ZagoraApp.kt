@@ -131,7 +131,7 @@ fun ZagoraApp(
     var attachTarget by remember { mutableStateOf<Session?>(null) }
 
     val ok = MaterialTheme.colorScheme.primary
-    val warn = Color(0xFFF59E0B)
+    val warn = MaterialTheme.colorScheme.tertiary
 
     LaunchedEffect(reconnectPolicy) {
         attachVm.setReconnectPolicy(reconnectPolicy)
@@ -314,14 +314,14 @@ private fun SessionsScreen(
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Refresh sessions",
-                            tint = Color(0xFFE2E8F0)
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     IconButton(onClick = onGoSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Open settings",
-                            tint = Color(0xFFE2E8F0)
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -363,10 +363,10 @@ private fun SessionsScreen(
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF1E293B)
+                            color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("未配置 server，请先去 Settings。", color = Color(0xFFE2E8F0))
+                                Text("未配置 server，请先去 Settings。", color = MaterialTheme.colorScheme.onSurface)
                                 FilledTonalButton(onClick = onGoSettings, colors = zagoraTonalButtonColors()) { Text("Go Settings") }
                             }
                         }
@@ -382,15 +382,15 @@ private fun SessionsScreen(
                         colors = zagoraFieldColors()
                     )
                 }
-                item { HorizontalDivider(color = Color(0xFF334155)) }
+                item { HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant) }
                 if (screenState == "Empty") {
                     item {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF0F172A)
+                            color = MaterialTheme.colorScheme.surface
                         ) {
-                            Text("No sessions", modifier = Modifier.padding(12.dp), color = Color(0xFFCBD5E1))
+                            Text("No sessions", modifier = Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -505,7 +505,7 @@ private fun SettingsScreen(
                 ),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Text("←", color = Color(0xFFE2E8F0), fontWeight = FontWeight.Bold)
+                        Text("←", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     }
                 }
             )
@@ -522,10 +522,10 @@ private fun SettingsScreen(
         ) {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Server", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("Server", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         value = localServer,
@@ -578,10 +578,10 @@ private fun SettingsScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("SSH", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("SSH", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         value = localUser,
@@ -595,14 +595,14 @@ private fun SettingsScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Terminal", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("Terminal", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     ListItem(
                         colors = zagoraListItemColors(),
-                        headlineContent = { Text("Font size", color = Color(0xFFE2E8F0)) },
-                        supportingContent = { Text("${localFont.toInt()}sp", color = Color(0xFF94A3B8)) },
+                        headlineContent = { Text("Font size", color = MaterialTheme.colorScheme.onSurface) },
+                        supportingContent = { Text("${localFont.toInt()}sp", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         trailingContent = {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 FilledTonalButton(
@@ -618,8 +618,8 @@ private fun SettingsScreen(
                     )
                     ListItem(
                         colors = zagoraListItemColors(),
-                        headlineContent = { Text("Paste confirm", color = Color(0xFFE2E8F0)) },
-                        supportingContent = { Text("Confirm before multi-line paste", color = Color(0xFF94A3B8)) },
+                        headlineContent = { Text("Paste confirm", color = MaterialTheme.colorScheme.onSurface) },
+                        supportingContent = { Text("Confirm before multi-line paste", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                         trailingContent = {
                             Switch(
                                 checked = localConfirm,
@@ -632,11 +632,11 @@ private fun SettingsScreen(
 
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF111827).copy(alpha = 0.94f))
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Connection", color = Color(0xFFF8FAFC), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
-                    Text("Reconnect policy", color = Color(0xFFE2E8F0), style = MaterialTheme.typography.bodyMedium)
+                    Text("Connection", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    Text("Reconnect policy", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
                     SingleChoiceSegmentedButtonRow {
                         SegmentedButton(
                             selected = localPolicy == "manual",
@@ -659,12 +659,12 @@ private fun SettingsScreen(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1E293B).copy(alpha = 0.92f)
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
             ) {
                 Text(
                     "Auto-saved",
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    color = Color(0xFFCBD5E1),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -904,7 +904,10 @@ private fun AttachScreen(
         }
     }
 
-    val terminalAnnotated = remember(renderedTerminal) { buildTerminalAnnotated(renderedTerminal) }
+    val terminalPalette = terminalTextPalette()
+    val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
+        buildTerminalAnnotated(renderedTerminal, terminalPalette)
+    }
 
     LaunchedEffect(attachState.output, followOutput) {
         if (followOutput) {
@@ -1431,7 +1434,26 @@ private fun _shortLabelTime(raw: String): String {
     return if (s.length >= 16) s.substring(5, 16) else s
 }
 
-private fun buildTerminalAnnotated(text: String): AnnotatedString {
+private data class TerminalTextPalette(
+    val prompt: Color,
+    val command: Color,
+    val error: Color,
+    val warning: Color,
+    val success: Color,
+    val normal: Color
+)
+
+@Composable
+private fun terminalTextPalette(): TerminalTextPalette = TerminalTextPalette(
+    prompt = MaterialTheme.colorScheme.primary,
+    command = MaterialTheme.colorScheme.onSurface,
+    error = Color(0xFFFCA5A5),
+    warning = MaterialTheme.colorScheme.tertiary,
+    success = Color(0xFF86EFAC),
+    normal = MaterialTheme.colorScheme.onSurface
+)
+
+private fun buildTerminalAnnotated(text: String, palette: TerminalTextPalette): AnnotatedString {
     val error = Regex("(?i)(error|failed|exception|traceback)")
     val warn = Regex("(?i)(warn|warning)")
     val ok = Regex("(?i)(success|connected|attached|done|ok\\b)")
@@ -1441,12 +1463,12 @@ private fun buildTerminalAnnotated(text: String): AnnotatedString {
         val lines = text.split('\n')
         lines.forEachIndexed { i, line ->
             val style = when {
-                prompt.containsMatchIn(line) -> SpanStyle(color = Color(0xFF22D3EE))
-                cmdEcho.containsMatchIn(line) -> SpanStyle(color = Color(0xFF93C5FD))
-                error.containsMatchIn(line) -> SpanStyle(color = Color(0xFFFCA5A5))
-                warn.containsMatchIn(line) -> SpanStyle(color = Color(0xFFFBBF24))
-                ok.containsMatchIn(line) -> SpanStyle(color = Color(0xFF86EFAC))
-                else -> SpanStyle(color = Color(0xFFE2E8F0))
+                prompt.containsMatchIn(line) -> SpanStyle(color = palette.prompt)
+                cmdEcho.containsMatchIn(line) -> SpanStyle(color = palette.command)
+                error.containsMatchIn(line) -> SpanStyle(color = palette.error)
+                warn.containsMatchIn(line) -> SpanStyle(color = palette.warning)
+                ok.containsMatchIn(line) -> SpanStyle(color = palette.success)
+                else -> SpanStyle(color = palette.normal)
             }
             withStyle(style) { append(line) }
             if (i < lines.lastIndex) append('\n')
@@ -1487,6 +1509,6 @@ private fun zagoraTonalButtonColors() = ButtonDefaults.filledTonalButtonColors(
 
 @Composable
 private fun zagoraDangerTextButtonColors() = ButtonDefaults.textButtonColors(
-    contentColor = Color(0xFFFCA5A5),
-    disabledContentColor = Color(0xFF7F1D1D)
+    contentColor = MaterialTheme.colorScheme.error,
+    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
 )
