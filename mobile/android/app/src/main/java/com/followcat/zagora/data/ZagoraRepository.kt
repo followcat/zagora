@@ -68,49 +68,54 @@ class ZagoraRepository(
 
     private fun runRemoteKill(host: String, user: String, password: String, sessionName: String) {
         val jsch = JSch()
-        val session = jsch.getSession(user, host, 22)
-        if (password.isNotBlank()) {
-            session.setPassword(password)
-        }
-        session.setConfig("StrictHostKeyChecking", "no")
-        session.connect(10_000)
+        var session: com.jcraft.jsch.Session? = null
+        var channel: ChannelExec? = null
+        try {
+            session = jsch.getSession(user, host, 22)
+            if (password.isNotBlank()) {
+                session.setPassword(password)
+            }
+            session.setConfig("StrictHostKeyChecking", "no")
+            session.connect(10_000)
 
-        val channel = (session.openChannel("exec") as ChannelExec)
-        val out = ByteArrayOutputStream()
-        val err = ByteArrayOutputStream()
-        channel.setErrStream(err)
-        val q = shellEscape(sessionName)
-        channel.setCommand(
-            "if command -v zellij >/dev/null 2>&1; then " +
-                "zellij kill-session $q >/dev/null 2>&1 || zellij delete-session $q >/dev/null 2>&1 || true; " +
-                "else echo __ZG_NO_ZELLIJ__; fi"
-        )
-        channel.connect(10_000)
-        val stdout = channel.inputStream
-        val tmp = ByteArray(1024)
-        while (!channel.isClosed) {
+            channel = (session.openChannel("exec") as ChannelExec)
+            val out = ByteArrayOutputStream()
+            val err = ByteArrayOutputStream()
+            channel.setErrStream(err)
+            val q = shellEscape(sessionName)
+            channel.setCommand(
+                "if command -v zellij >/dev/null 2>&1; then " +
+                    "zellij kill-session $q >/dev/null 2>&1 || zellij delete-session $q >/dev/null 2>&1 || true; " +
+                    "else echo __ZG_NO_ZELLIJ__; fi"
+            )
+            channel.connect(10_000)
+            val stdout = channel.inputStream
+            val tmp = ByteArray(1024)
+            while (!channel.isClosed) {
+                while (stdout.available() > 0) {
+                    val n = stdout.read(tmp, 0, tmp.size)
+                    if (n <= 0) break
+                    out.write(tmp, 0, n)
+                }
+                Thread.sleep(40)
+            }
             while (stdout.available() > 0) {
                 val n = stdout.read(tmp, 0, tmp.size)
                 if (n <= 0) break
                 out.write(tmp, 0, n)
             }
-            Thread.sleep(40)
-        }
-        while (stdout.available() > 0) {
-            val n = stdout.read(tmp, 0, tmp.size)
-            if (n <= 0) break
-            out.write(tmp, 0, n)
-        }
-        val exit = channel.exitStatus
-        val output = (out.toString(Charsets.UTF_8.name()) + "\n" + err.toString(Charsets.UTF_8.name())).trim()
-        channel.disconnect()
-        session.disconnect()
+            val exit = channel.exitStatus
+            val output = (out.toString(Charsets.UTF_8.name()) + "\n" + err.toString(Charsets.UTF_8.name())).trim()
 
-        // If remote host reachable but command failed with explicit auth/permission-like signal, fail fast.
-        if (exit != 0 && output.contains("permission denied", ignoreCase = true)) {
-            error("Remote kill failed: permission denied")
+            // If remote host reachable but command failed with explicit auth/permission-like signal, fail fast.
+            if (exit != 0 && output.contains("permission denied", ignoreCase = true)) {
+                error("Remote kill failed: permission denied")
+            }
+            // zellij missing / non-zero are tolerated by caller for stale cleanup semantics.
+        } finally {
+            runCatching { channel?.disconnect() }
+            runCatching { session?.disconnect() }
         }
-        // zellij missing / non-zero are tolerated by caller for stale cleanup semantics.
     }
 
     private fun shellEscape(raw: String): String {
