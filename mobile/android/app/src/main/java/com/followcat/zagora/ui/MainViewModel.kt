@@ -44,22 +44,27 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun deleteSession(server: String, token: String, session: Session) {
+    fun deleteSession(server: String, token: String, session: Session, sshUser: String, sshPassword: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, message = "")
             runCatching {
                 val repo = ZagoraRepository(server, token)
-                repo.removeSession(session.name, session.host)
+                repo.killAndRemoveSession(
+                    name = session.name,
+                    host = session.host,
+                    sshUser = sshUser,
+                    sshPassword = sshPassword
+                )
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     loading = false,
                     sessions = _uiState.value.sessions.filterNot { it.name == session.name && it.host == session.host },
-                    message = "Removed ${session.name}@${session.host}"
+                    message = "Killed and removed ${session.name}@${session.host}"
                 )
             }.onFailure { err ->
                 _uiState.value = _uiState.value.copy(
                     loading = false,
-                    message = "Remove failed: ${err.message ?: err::class.simpleName}"
+                    message = "Kill/remove failed: ${err.message ?: err::class.simpleName}"
                 )
             }
         }

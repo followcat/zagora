@@ -233,7 +233,11 @@ fun ZagoraApp(
                     attachTarget = session
                 },
                 onOpenSsh = { session -> openInExternalSshApp(ctx, session.host, sshUser) },
-                onDelete = { session -> vm.deleteSession(server, token, session) }
+                onDelete = { session ->
+                    val (savedUser, savedPass) = store.loadSessionSsh(session.host, session.name)
+                    val killUser = savedUser.ifBlank { sshUser }
+                    vm.deleteSession(server, token, session, killUser, savedPass)
+                }
             )
             MobileScreen.Settings -> SettingsScreen(
                 server = server,
@@ -838,7 +842,7 @@ private fun SessionRow(
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Remove session") },
-            text = { Text("Delete ${session.name} from registry?") },
+            text = { Text("Kill remote session and remove ${session.name} from registry?") },
             confirmButton = {
                 CompactFilledButton(
                     text = "Remove",
