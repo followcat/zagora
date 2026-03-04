@@ -61,6 +61,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,7 +81,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 
 private enum class MobileScreen {
     Sessions,
@@ -404,6 +410,9 @@ private fun SettingsScreen(
     var localFont by remember { mutableStateOf(terminalFontSize) }
     var localConfirm by remember { mutableStateOf(confirmMultilinePaste) }
     var localPolicy by remember { mutableStateOf(reconnectPolicy) }
+    var tokenVisible by remember { mutableStateOf(false) }
+    var testingConnection by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(localServer, localToken, localUser, localFont, localConfirm, localPolicy) {
         onChange(localServer, localToken, localUser, localFont, localConfirm, localPolicy)
@@ -450,9 +459,39 @@ private fun SettingsScreen(
                         onValueChange = { localToken = it },
                         label = { Text("Bearer Token (optional)") },
                         singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (tokenVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { tokenVisible = !tokenVisible }) {
+                                Text(if (tokenVisible) "Hide" else "Show")
+                            }
+                        },
                         colors = zagoraFieldColors()
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    if (localServer.isBlank()) {
+                                        snackbarHostState.showSnackbar("Base URL is empty")
+                                        return@launch
+                                    }
+                                    testingConnection = true
+                                    val (ok, detail) = probeHealth(localServer, localToken)
+                                    testingConnection = false
+                                    snackbarHostState.showSnackbar(
+                                        if (ok) "Connection OK ($detail)" else "Connection failed ($detail)"
+                                    )
+                                }
+                            },
+                            enabled = !testingConnection,
+                            colors = zagoraTonalButtonColors()
+                        ) {
+                            Text(if (testingConnection) "Testing..." else "Test Connection")
+                        }
+                    }
                 }
             }
 
@@ -556,6 +595,24 @@ private fun SettingsScreen(
 private fun zagoraListItemColors() = androidx.compose.material3.ListItemDefaults.colors(
     containerColor = Color.Transparent
 )
+
+private suspend fun probeHealth(baseUrl: String, token: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+    val normalizedBase = baseUrl.trim().trimEnd('/')
+    if (normalizedBase.isBlank()) return@withContext false to "empty url"
+    val healthUrl = "$normalizedBase/health"
+    return@withContext runCatching {
+        val conn = (URL(healthUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 3000
+            readTimeout = 3000
+            if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer ${token.trim()}")
+        }
+        conn.useCaches = false
+        val code = conn.responseCode
+        conn.disconnect()
+        if (code in 200..299) true to "$code" else false to "$code"
+    }.getOrElse { false to (it.message ?: "request error") }
+}
 
 @Composable
 private fun SessionCard(
