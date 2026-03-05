@@ -954,6 +954,7 @@ private fun AttachScreen(
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
     val outputScroll = rememberScrollState()
+    val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val imeFocusRequester = remember(target.host, target.name) { FocusRequester() }
@@ -1009,18 +1010,18 @@ private fun AttachScreen(
         if (terminalViewportPx.width <= 0 || terminalViewportPx.height <= 0) return@LaunchedEffect
         val viewportWidth = terminalViewportPx.width.toFloat().coerceAtLeast(1f)
         val viewportHeight = terminalViewportPx.height.toFloat().coerceAtLeast(1f)
-        val isPortrait = viewportHeight >= viewportWidth
         val horizontalPaddingPx = with(density) { 20.dp.toPx() }
         val verticalPaddingPx = with(density) { if (extraKeysVisible) 12.dp.toPx() else 8.dp.toPx() }
         val availableWidth = (viewportWidth - horizontalPaddingPx).coerceAtLeast(1f)
         val availableHeight = (viewportHeight - verticalPaddingPx).coerceAtLeast(1f)
         val charWidthPx = with(density) { (terminalFontSize.sp.toPx() * 0.66f).coerceAtLeast(6f) }
         val lineHeightPx = with(density) { ((terminalFontSize + 5f).sp.toPx()).coerceAtLeast(10f) }
-        val rawCols = (availableWidth / charWidthPx).toInt()
-        val minCols = if (isPortrait) 34 else 48
-        val maxCols = if (isPortrait) 58 else 120
-        val cols = rawCols.coerceIn(minCols, maxCols)
-        val rows = (availableHeight / lineHeightPx).toInt().coerceAtLeast(10)
+        val rawCols = (availableWidth / charWidthPx).toInt().coerceAtLeast(1)
+        val rawRows = (availableHeight / lineHeightPx).toInt().coerceAtLeast(1)
+        // zellij may require at least 80x35 (depends on layout/plugins).
+        // Keep a safe PTY size and rely on horizontal/vertical scroll for small phone viewports.
+        val cols = rawCols.coerceIn(80, 160)
+        val rows = rawRows.coerceIn(35, 80)
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
@@ -1267,13 +1268,14 @@ private fun AttachScreen(
                                     keyboardController?.show()
                                 }
                             )
+                            .horizontalScroll(outputScrollX)
                             .verticalScroll(outputScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         color = MaterialTheme.colorScheme.onBackground,
                         fontFamily = terminalTypefaceFamily,
                         fontSize = terminalFontSize.sp,
                         lineHeight = (terminalFontSize + 6f).sp,
-                        softWrap = true
+                        softWrap = false
                     )
                 }
             }
