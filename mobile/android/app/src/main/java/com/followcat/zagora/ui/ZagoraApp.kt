@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -104,6 +107,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -914,7 +918,7 @@ private fun StatusBadge(text: String, bg: Color) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AttachScreen(
     target: Session,
@@ -965,6 +969,7 @@ private fun AttachScreen(
     val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val imeVisible = WindowInsets.isImeVisible
     val imeFocusRequester = remember(target.host, target.name) { FocusRequester() }
     var imeBuffer by remember(target.host, target.name) { mutableStateOf(TextFieldValue("")) }
     val density = LocalDensity.current
@@ -1167,7 +1172,7 @@ private fun AttachScreen(
             )
         },
         bottomBar = {
-            AnimatedVisibility(visible = extraKeysVisible) {
+            AnimatedVisibility(visible = extraKeysVisible && !imeVisible) {
                 Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)) {
                     Column(
                         modifier = Modifier
@@ -1231,6 +1236,7 @@ private fun AttachScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
                 .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -1331,7 +1337,7 @@ private fun AttachScreen(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = if (extraKeysVisible) 70.dp else 12.dp),
+                        .padding(bottom = if (extraKeysVisible && !imeVisible) 70.dp else 12.dp),
                     shape = RoundedCornerShape(999.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                 ) {
