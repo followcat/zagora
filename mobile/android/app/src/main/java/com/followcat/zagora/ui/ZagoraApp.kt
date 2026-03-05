@@ -959,8 +959,10 @@ private fun AttachScreen(
     val clipboard = LocalClipboardManager.current
     val imeVisible = WindowInsets.isImeVisible
     val density = LocalDensity.current
+    val term = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
+    var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
     val requestIme: () -> Unit = {}
 
@@ -983,6 +985,27 @@ private fun AttachScreen(
         }
     }
 
+    LaunchedEffect(attachState.output) {
+        val out = attachState.output
+        if (out.length < processedLen) {
+            term.reset()
+            processedLen = 0
+            renderedTerminal = "# waiting for shell output..."
+        }
+        if (out.length > processedLen) {
+            val delta = out.substring(processedLen)
+            term.feed(delta)
+            processedLen = out.length
+            renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
+        }
+    }
+
+    val terminalPalette = terminalColorPalette()
+    val terminalTypefaceFamily = remember(terminalFontPack) { terminalFontFamily(terminalFontPack) }
+    val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
+        term.renderAnnotated(terminalPalette)
+    }
+
     LaunchedEffect(terminalViewportPx, terminalFontSize, extraKeysVisible) {
         if (terminalViewportPx.width <= 0 || terminalViewportPx.height <= 0) return@LaunchedEffect
         val viewportWidth = terminalViewportPx.width.toFloat().coerceAtLeast(1f)
@@ -1001,10 +1024,8 @@ private fun AttachScreen(
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
+        term.resize(cols, rows)
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
-    }
-    LaunchedEffect(attachState.output) {
-        renderedTerminal = attachState.output.takeLast(120_000)
     }
     LaunchedEffect(attachState.output, followOutput) {
         if (followOutput) {
@@ -1210,7 +1231,7 @@ private fun AttachScreen(
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 SelectionContainer {
                     Text(
-                        text = renderedTerminal.ifBlank { "# waiting for shell output..." },
+                        text = terminalAnnotated,
                         modifier = Modifier
                             .fillMaxSize()
                             .onSizeChanged { terminalViewportPx = it }
@@ -1218,6 +1239,7 @@ private fun AttachScreen(
                             .verticalScroll(outputScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = terminalTypefaceFamily,
                         fontSize = terminalFontSize.sp,
                         lineHeight = (terminalFontSize + 6f).sp,
                         softWrap = false

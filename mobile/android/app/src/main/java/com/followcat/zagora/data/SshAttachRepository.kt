@@ -406,7 +406,8 @@ class SshAttachRepository(
 
     private fun buildHistoryGuardCommand(): String {
         return (
-            "unset HISTFILE; export HISTFILE=/dev/null; export HISTSIZE=0; export SAVEHIST=0; " +
+            "stty -echo 2>/dev/null || true; " +
+                "unset HISTFILE; export HISTFILE=/dev/null; export HISTSIZE=0; export SAVEHIST=0; " +
                 "set +o history 2>/dev/null || true; " +
                 "unsetopt SHARE_HISTORY INC_APPEND_HISTORY INC_APPEND_HISTORY_TIME 2>/dev/null || true"
             )
@@ -425,13 +426,12 @@ class SshAttachRepository(
         } else {
             "exec \"\$HOME/.local/bin/zellij\" attach -c $qName"
         }
-        val script = (
+        return (
             "stty cols $ptyCols rows $ptyRows 2>/dev/null || true; " +
                 "if command -v zellij >/dev/null 2>&1; then $attachCmd; " +
                 "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then $fallbackAttachCmd; " +
                 "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; fi"
             )
-        return "/bin/sh -lc ${shellEscape(script)}"
     }
 
     private fun mapError(err: Throwable): Pair<AttachErrorCode, String> {
