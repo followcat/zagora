@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.followcat.zagora.data.AttachState
 import com.followcat.zagora.data.SshAttachRepository
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 class AttachViewModel : ViewModel() {
     private val repo = SshAttachRepository()
     val state: StateFlow<AttachState> = repo.state
+    val incomingBytes: SharedFlow<ByteArray> = repo.incomingBytes
     private val _sticky = MutableStateFlow(StickyModifiers())
     val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
     private var lastConnectParams: ConnectParams? = null
@@ -58,6 +60,10 @@ class AttachViewModel : ViewModel() {
 
     fun sendLine(line: String) {
         repo.sendLine(line)
+    }
+
+    fun sendRaw(bytes: ByteArray) {
+        if (bytes.isNotEmpty()) repo.sendRaw(bytes)
     }
 
     fun setStickyCtrl(enabled: Boolean) {
