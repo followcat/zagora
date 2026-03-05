@@ -23,12 +23,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.focusable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,10 +87,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -94,6 +102,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -102,13 +115,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.connectbot.terminal.Terminal
-import org.connectbot.terminal.TerminalEmulatorFactory
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -194,12 +204,10 @@ fun ZagoraApp(
                 onSendPageDown = { attachVm.sendPageDown() },
                 onSendHome = { attachVm.sendHome() },
                 onSendEnd = { attachVm.sendEnd() },
-                onSendRaw = { bytes -> attachVm.sendRaw(bytes) },
                 onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
                 onResizeTerminal = { cols, rows, pxWidth, pxHeight ->
                     attachVm.resizeTerminal(cols, rows, pxWidth, pxHeight)
                 },
-                incomingBytes = attachVm.incomingBytes,
                 stickyCtrl = sticky.ctrl,
                 stickyAlt = sticky.alt,
                 onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
@@ -931,10 +939,8 @@ private fun AttachScreen(
     onSendPageDown: () -> Unit,
     onSendHome: () -> Unit,
     onSendEnd: () -> Unit,
-    onSendRaw: (ByteArray) -> Unit,
     onPasteRaw: (String) -> Unit,
     onResizeTerminal: (Int, Int, Int, Int) -> Unit,
-    incomingBytes: SharedFlow<ByteArray>,
     stickyCtrl: Boolean,
     stickyAlt: Boolean,
     onToggleStickyCtrl: () -> Unit,
@@ -959,23 +965,19 @@ private fun AttachScreen(
     var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
+    val outputScroll = rememberScrollState()
+    val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
-    val terminalFocusRequester = remember(target.host, target.name) { FocusRequester() }
+    val imeFocusRequester = remember(target.host, target.name) { FocusRequester() }
+    var imeBuffer by remember(target.host, target.name) { mutableStateOf(TextFieldValue("")) }
     val density = LocalDensity.current
-    val term = remember(target.host, target.name) {
-        TerminalEmulatorFactory.create(
-            initialRows = 40,
-            initialCols = 100,
-            defaultForeground = MaterialTheme.colorScheme.onBackground,
-            defaultBackground = MaterialTheme.colorScheme.background,
-            onKeyboardInput = { bytes -> onSendRaw(bytes) },
-            onResize = { dim -> onResizeTerminal(dim.columns, dim.rows, 0, 0) }
-        )
-    }
+    val term = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
-    var renderedTerminal by remember(target.host, target.name) { mutableStateOf("") }
+    var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
+    var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
 
     val manualDetach: () -> Unit = {
         suppressAutoReconnect = true
@@ -996,12 +998,25 @@ private fun AttachScreen(
         }
     }
 
-    LaunchedEffect(incomingBytes, target.host, target.name) {
-        incomingBytes.collect { chunk ->
-            if (chunk.isNotEmpty()) {
-                term.writeInput(chunk, 0, chunk.size)
-            }
+    LaunchedEffect(attachState.output) {
+        val out = attachState.output
+        if (out.length < processedLen) {
+            term.reset()
+            processedLen = 0
+            renderedTerminal = "# waiting for shell output..."
         }
+        if (out.length > processedLen) {
+            val delta = out.substring(processedLen)
+            term.feed(delta)
+            processedLen = out.length
+            renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
+        }
+    }
+
+    val terminalPalette = terminalColorPalette()
+    val terminalTypefaceFamily = remember(terminalFontPack) { terminalFontFamily(terminalFontPack) }
+    val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
+        term.renderAnnotated(terminalPalette)
     }
 
     LaunchedEffect(terminalViewportPx, terminalFontSize, extraKeysVisible) {
@@ -1022,11 +1037,18 @@ private fun AttachScreen(
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
-        term.resize(rows, cols)
+        term.resize(cols, rows)
+        renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
     }
-    LaunchedEffect(attachState.output) {
-        renderedTerminal = attachState.output.takeLast(120_000)
+    LaunchedEffect(terminalFontPack) {
+        term.setAllowPrivateUseGlyphs(terminalFontPack == TerminalFontPack.JetBrainsNerd)
+    }
+
+    LaunchedEffect(attachState.output, followOutput) {
+        if (followOutput) {
+            outputScroll.scrollTo(outputScroll.maxValue)
+        }
     }
     LaunchedEffect(showGestureHint) {
         if (showGestureHint) {
@@ -1218,25 +1240,78 @@ private fun AttachScreen(
                 .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                Terminal(
-                    terminalEmulator = term,
+                // Hidden IME bridge: capture soft keyboard text and forward to remote PTY.
+                BasicTextField(
+                    value = imeBuffer,
+                    onValueChange = { next ->
+                        val oldText = imeBuffer.text
+                        val newText = next.text
+                        if (newText == oldText) return@BasicTextField
+                        if (newText.length < oldText.length) {
+                            onPasteRaw("\b".repeat(oldText.length - newText.length))
+                        }
+                        val inserted = if (newText.startsWith(oldText)) {
+                            newText.substring(oldText.length)
+                        } else {
+                            newText
+                        }
+                        if (inserted.isNotEmpty()) onPasteRaw(inserted)
+                        // Keep IME bridge buffer short and stable to avoid drift from autocorrect/composition.
+                        imeBuffer = TextFieldValue("", selection = TextRange.Zero)
+                    },
                     modifier = Modifier
-                        .fillMaxSize()
-                        .onSizeChanged { terminalViewportPx = it }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    focusRequester = terminalFocusRequester,
-                    keyboardEnabled = true,
-                    showSoftKeyboard = true,
-                    initialFontSize = terminalFontSize.sp,
-                    minFontSize = 10.sp,
-                    maxFontSize = 22.sp,
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    foregroundColor = MaterialTheme.colorScheme.onBackground,
-                    onTerminalTap = {
-                        showGestureHint = false
-                        terminalFocusRequester.requestFocus()
-                    }
+                        .size(1.dp)
+                        .focusRequester(imeFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent { evt ->
+                            if (evt.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (evt.key) {
+                                Key.Enter -> {
+                                    onPasteRaw("\n")
+                                    true
+                                }
+                                Key.Backspace -> {
+                                    onPasteRaw("\b")
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    keyboardOptions = KeyboardOptions(
+                        autoCorrect = false,
+                        imeAction = ImeAction.None
+                    ),
+                    singleLine = true
                 )
+                SelectionContainer {
+                    Text(
+                        text = terminalAnnotated,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onSizeChanged { terminalViewportPx = it }
+                            .combinedClickable(
+                                onClick = {
+                                    showGestureHint = false
+                                    imeFocusRequester.requestFocus()
+                                    keyboardController?.show()
+                                },
+                                onLongClick = {
+                                    selectionMode = true
+                                    showGestureHint = false
+                                    imeFocusRequester.requestFocus()
+                                    keyboardController?.show()
+                                }
+                            )
+                            .horizontalScroll(outputScrollX)
+                            .verticalScroll(outputScroll)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = terminalTypefaceFamily,
+                        fontSize = terminalFontSize.sp,
+                        lineHeight = (terminalFontSize + 6f).sp,
+                        softWrap = false
+                    )
+                }
             }
 
             AnimatedVisibility(

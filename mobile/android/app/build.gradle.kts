@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.followcat.zagora"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.followcat.zagora"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
     }
@@ -58,14 +58,6 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
     implementation("com.github.mwiede:jsch:0.2.18")
-    implementation("org.connectbot:termlib:0.0.22") {
-        // Keep app-side dependency versions to avoid AGP/SDK mismatch from upstream transitive pins.
-        exclude(group = "androidx.compose")
-        exclude(group = "androidx.core")
-        exclude(group = "androidx.lifecycle")
-        exclude(group = "androidx.activity")
-        exclude(group = "androidx.transition")
-    }
 
     testImplementation("junit:junit:4.13.2")
 
