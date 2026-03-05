@@ -996,7 +996,9 @@ private fun AttachScreen(
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
     val requestIme: () -> Unit = {
-        terminalFocusRequester.requestFocus()
+        if (term != null) {
+            runCatching { terminalFocusRequester.requestFocus() }
+        }
     }
 
     val manualDetach: () -> Unit = {
