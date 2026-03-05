@@ -11,10 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -71,8 +68,6 @@ class SshAttachRepository(
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val _state = MutableStateFlow(AttachState())
     val state: StateFlow<AttachState> = _state.asStateFlow()
-    private val _incomingBytes = MutableSharedFlow<ByteArray>(extraBufferCapacity = 256)
-    val incomingBytes: SharedFlow<ByteArray> = _incomingBytes.asSharedFlow()
 
     @Volatile
     private var sshSession: JschSession? = null
@@ -87,9 +82,9 @@ class SshAttachRepository(
     private var reconnectPolicy: String = "manual"
     private var manualDisconnect = false
     @Volatile
-    private var ptyCols: Int = 100
+    private var ptyCols: Int = 80
     @Volatile
-    private var ptyRows: Int = 40
+    private var ptyRows: Int = 24
     @Volatile
     private var ptyPixelWidth: Int = 0
     @Volatile
@@ -310,7 +305,6 @@ class SshAttachRepository(
                 if (n <= 0) {
                     break
                 }
-                _incomingBytes.tryEmit(buf.copyOfRange(0, n))
                 val merged = if (pending.isEmpty()) {
                     buf.copyOfRange(0, n)
                 } else {
