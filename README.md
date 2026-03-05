@@ -84,6 +84,17 @@ pip install -e .
 
 - [mobile/android/README.md](mobile/android/README.md)
 
+## 架构文档（AI 协作）
+
+为方便和其他 AI / Web ChatGPT 协作研究，新增架构手册：
+
+- [docs/ARCHITECTURE_AI.md](docs/ARCHITECTURE_AI.md)
+
+包含内容：
+- 当前后端/移动端模块边界与数据流
+- 高风险改动点与建议拆分方案
+- 可直接复用的 AI 提问模板与验证命令
+
 ## Shell 自动补全（Tab completion）
 
 zagora 内置生成补全脚本：

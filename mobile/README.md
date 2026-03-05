@@ -5,6 +5,10 @@
 - `mobile/web`：浏览器快速交互原型
 - `mobile/android`：Android 打包与真机验证
 
+协作建议：如果要与其他 AI 一起做架构讨论或功能研究，先阅读仓库根目录文档：
+
+- `docs/ARCHITECTURE_AI.md`
+
 ## 推荐流程
 
 1. **先在 Web 打磨交互**
