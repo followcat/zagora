@@ -168,6 +168,11 @@ class SshAttachRepository(
                 session.connect(10_000)
 
                 val channel = session.openChannel("shell") as ChannelShell
+                // Best-effort: prevent connect-time helper commands from polluting remote shell history.
+                channel.setEnv("HISTFILE", "/dev/null")
+                channel.setEnv("HISTSIZE", "0")
+                channel.setEnv("SAVEHIST", "0")
+                channel.setEnv("HISTCONTROL", "ignorespace:ignoredups")
                 channel.setPtyType("xterm-256color", ptyCols, ptyRows, ptyPixelWidth, ptyPixelHeight)
                 channel.connect(10_000)
 
@@ -188,6 +193,7 @@ class SshAttachRepository(
                     message = "Connected $cleanUser@$cleanHost. Attaching zellij..."
                 )
             }
+            sendLine(buildHistoryGuardCommand())
             sendLine(buildAttachCommand(cleanSession))
             _state.update {
                 it.copy(
@@ -385,6 +391,14 @@ class SshAttachRepository(
     private fun shellEscape(raw: String): String {
         if (raw.isBlank()) return ""
         return "'" + raw.replace("'", "'\"'\"'") + "'"
+    }
+
+    private fun buildHistoryGuardCommand(): String {
+        return (
+            "unset HISTFILE; export HISTFILE=/dev/null; export HISTSIZE=0; export SAVEHIST=0; " +
+                "set +o history 2>/dev/null || true; " +
+                "unsetopt SHARE_HISTORY INC_APPEND_HISTORY INC_APPEND_HISTORY_TIME 2>/dev/null || true"
+            )
     }
 
     private fun buildAttachCommand(sessionName: String): String {
