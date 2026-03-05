@@ -11,7 +11,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -68,6 +71,8 @@ class SshAttachRepository(
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val _state = MutableStateFlow(AttachState())
     val state: StateFlow<AttachState> = _state.asStateFlow()
+    private val _incomingBytes = MutableSharedFlow<ByteArray>(extraBufferCapacity = 256)
+    val incomingBytes: SharedFlow<ByteArray> = _incomingBytes.asSharedFlow()
 
     @Volatile
     private var sshSession: JschSession? = null
@@ -99,8 +104,10 @@ class SshAttachRepository(
     }
 
     fun resizePty(cols: Int, rows: Int, pixelWidth: Int = 0, pixelHeight: Int = 0) {
-        val safeCols = cols.coerceAtLeast(100)
-        val safeRows = rows.coerceAtLeast(40)
+        // Keep PTY size aligned with real terminal viewport; aggressive minima
+        // (e.g. 100x40) make remote TUIs render for a larger canvas than mobile has.
+        val safeCols = cols.coerceAtLeast(20)
+        val safeRows = rows.coerceAtLeast(8)
         ptyCols = safeCols
         ptyRows = safeRows
         ptyPixelWidth = pixelWidth.coerceAtLeast(0)
@@ -300,6 +307,7 @@ class SshAttachRepository(
                 if (n <= 0) {
                     break
                 }
+                _incomingBytes.tryEmit(buf.copyOfRange(0, n))
                 val merged = if (pending.isEmpty()) {
                     buf.copyOfRange(0, n)
                 } else {
