@@ -1177,12 +1177,12 @@ private fun AttachScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             KeyPill(label = "ESC", enabled = attachState.connected, onClick = onSendEsc)
                             KeyPill(label = "TAB", enabled = attachState.connected, onClick = onSendTab)
@@ -1203,7 +1203,7 @@ private fun AttachScreen(
                             KeyPill(label = "↑", enabled = attachState.connected, onClick = onSendArrowUp)
                             KeyPill(label = "→", enabled = attachState.connected, onClick = onSendArrowRight)
                         }
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             item { KeyPill(label = "PGUP", enabled = attachState.connected, onClick = onSendPageUp) }
                             item { KeyPill(label = "PGDN", enabled = attachState.connected, onClick = onSendPageDown) }
                             item { KeyPill(label = "HOME", enabled = attachState.connected, onClick = onSendHome) }
@@ -1591,16 +1591,16 @@ private fun KeyPill(
     val fg = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Surface(
         modifier = Modifier
-            .height(38.dp)
+            .height(34.dp)
             .clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(ZagoraRadius.field),
         color = bg
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(label, color = fg, fontSize = 12.sp)
+            Text(label, color = fg, fontSize = 11.sp)
         }
     }
 }
