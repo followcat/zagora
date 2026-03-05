@@ -101,14 +101,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
-import android.util.Log
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.connectbot.terminal.Terminal
-import org.connectbot.terminal.TerminalEmulatorFactory
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -119,8 +115,6 @@ private enum class MobileScreen {
 
 // Temporary kill-switch: some devices still crash inside termlib renderer path.
 // Keep attach usable via fallback renderer until we finish device-specific stabilization.
-private const val ENABLE_TERMLIB_RENDERER = false
-
 @Composable
 fun ZagoraApp(
     vm: MainViewModel = viewModel(),
@@ -198,12 +192,10 @@ fun ZagoraApp(
                 onSendPageDown = { attachVm.sendPageDown() },
                 onSendHome = { attachVm.sendHome() },
                 onSendEnd = { attachVm.sendEnd() },
-                onSendRaw = { bytes -> attachVm.sendRaw(bytes) },
                 onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
                 onResizeTerminal = { cols, rows, pxWidth, pxHeight ->
                     attachVm.resizeTerminal(cols, rows, pxWidth, pxHeight)
                 },
-                incomingBytes = attachVm.incomingBytes,
                 stickyCtrl = sticky.ctrl,
                 stickyAlt = sticky.alt,
                 onToggleStickyCtrl = { attachVm.toggleStickyCtrl() },
@@ -935,10 +927,8 @@ private fun AttachScreen(
     onSendPageDown: () -> Unit,
     onSendHome: () -> Unit,
     onSendEnd: () -> Unit,
-    onSendRaw: (ByteArray) -> Unit,
     onPasteRaw: (String) -> Unit,
     onResizeTerminal: (Int, Int, Int, Int) -> Unit,
-    incomingBytes: SharedFlow<ByteArray>,
     stickyCtrl: Boolean,
     stickyAlt: Boolean,
     onToggleStickyCtrl: () -> Unit,
@@ -964,42 +954,15 @@ private fun AttachScreen(
     var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
-    var termlibInitError by remember(target.host, target.name) {
-        mutableStateOf<String?>(if (ENABLE_TERMLIB_RENDERER) null else "termlib disabled (temporary safe mode)")
-    }
     val outputScroll = rememberScrollState()
     val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
     val imeVisible = WindowInsets.isImeVisible
-    val terminalFocusRequester = remember(target.host, target.name) { FocusRequester() }
     val density = LocalDensity.current
-    val defaultForeground = MaterialTheme.colorScheme.onBackground
-    val defaultBackground = MaterialTheme.colorScheme.background
-    val term = if (ENABLE_TERMLIB_RENDERER) {
-        remember(target.host, target.name) {
-            runCatching {
-                TerminalEmulatorFactory.create(
-                    initialRows = 24,
-                    initialCols = 64,
-                    defaultForeground = defaultForeground,
-                    defaultBackground = defaultBackground,
-                    onKeyboardInput = { bytes -> onSendRaw(bytes) },
-                    onResize = { dim -> onResizeTerminal(dim.columns, dim.rows, 0, 0) }
-                )
-            }.onFailure { err ->
-                termlibInitError = err.message ?: err::class.simpleName
-                Log.e("ZagoraAttach", "Failed to init termlib terminal", err)
-            }.getOrNull()
-        }
-    } else null
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
-    val requestIme: () -> Unit = {
-        if (term != null) {
-            runCatching { terminalFocusRequester.requestFocus() }
-        }
-    }
+    val requestIme: () -> Unit = {}
 
     val manualDetach: () -> Unit = {
         suppressAutoReconnect = true
@@ -1017,14 +980,6 @@ private fun AttachScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    LaunchedEffect(incomingBytes, target.host, target.name) {
-        incomingBytes.collect { chunk ->
-            if (chunk.isNotEmpty() && term != null) {
-                term.writeInput(chunk, 0, chunk.size)
-            }
         }
     }
 
@@ -1046,14 +1001,13 @@ private fun AttachScreen(
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
-        term?.resize(rows, cols)
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
     }
     LaunchedEffect(attachState.output) {
         renderedTerminal = attachState.output.takeLast(120_000)
     }
-    LaunchedEffect(attachState.output, followOutput, term) {
-        if (term == null && followOutput) {
+    LaunchedEffect(attachState.output, followOutput) {
+        if (followOutput) {
             outputScroll.scrollTo(outputScroll.maxValue)
         }
     }
@@ -1254,57 +1208,19 @@ private fun AttachScreen(
                 .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                if (term != null) {
-                    Terminal(
-                        terminalEmulator = term,
+                SelectionContainer {
+                    Text(
+                        text = renderedTerminal.ifBlank { "# waiting for shell output..." },
                         modifier = Modifier
                             .fillMaxSize()
                             .onSizeChanged { terminalViewportPx = it }
+                            .horizontalScroll(outputScrollX)
+                            .verticalScroll(outputScroll)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
-                        initialFontSize = terminalFontSize.sp,
-                        minFontSize = 10.sp,
-                        maxFontSize = 22.sp,
-                        backgroundColor = MaterialTheme.colorScheme.background,
-                        foregroundColor = MaterialTheme.colorScheme.onBackground,
-                        keyboardEnabled = true,
-                        focusRequester = terminalFocusRequester,
-                        onTerminalTap = {
-                            showGestureHint = false
-                            terminalFocusRequester.requestFocus()
-                        }
-                    )
-                } else {
-                    SelectionContainer {
-                        Text(
-                            text = renderedTerminal.ifBlank { "# waiting for shell output..." },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .onSizeChanged { terminalViewportPx = it }
-                                .horizontalScroll(outputScrollX)
-                                .verticalScroll(outputScroll)
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontSize = terminalFontSize.sp,
-                            lineHeight = (terminalFontSize + 6f).sp,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-
-            if (termlibInitError != null) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 10.dp),
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
-                ) {
-                    Text(
-                        text = "Terminal fallback mode: $termlibInitError",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.labelMedium
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = terminalFontSize.sp,
+                        lineHeight = (terminalFontSize + 6f).sp,
+                        softWrap = false
                     )
                 }
             }
