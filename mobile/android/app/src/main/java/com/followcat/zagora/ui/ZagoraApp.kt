@@ -953,6 +953,7 @@ private fun AttachScreen(
     var user by remember(target.host, target.name) { mutableStateOf(initialUser) }
     var password by remember(target.host, target.name) { mutableStateOf(initialPassword) }
     var showCredentialsDialog by remember(target.host, target.name) { mutableStateOf(false) }
+    var didInitialConnect by remember(target.host, target.name) { mutableStateOf(false) }
     var extraKeysVisible by remember(target.host, target.name) { mutableStateOf(true) }
     var terminalFontSize by remember(target.host, target.name, initialFontSize) { mutableStateOf(initialFontSize) }
     var showPasteConfirm by remember(target.host, target.name) { mutableStateOf(false) }
@@ -963,7 +964,9 @@ private fun AttachScreen(
     var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
-    var termlibInitError by remember(target.host, target.name) { mutableStateOf<String?>(null) }
+    var termlibInitError by remember(target.host, target.name) {
+        mutableStateOf<String?>(if (ENABLE_TERMLIB_RENDERER) null else "termlib disabled (temporary safe mode)")
+    }
     val outputScroll = rememberScrollState()
     val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
@@ -988,10 +991,7 @@ private fun AttachScreen(
                 Log.e("ZagoraAttach", "Failed to init termlib terminal", err)
             }.getOrNull()
         }
-    } else {
-        termlibInitError = "termlib disabled (temporary safe mode)"
-        null
-    }
+    } else null
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
@@ -1081,6 +1081,10 @@ private fun AttachScreen(
     LaunchedEffect(target.host, target.name) {
         if (user.isBlank()) {
             showCredentialsDialog = true
+            didInitialConnect = true
+        } else if (!didInitialConnect) {
+            didInitialConnect = true
+            onConnect(user.trim(), password)
         }
         delay(120)
         requestIme()
