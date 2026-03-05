@@ -82,9 +82,9 @@ class SshAttachRepository(
     private var reconnectPolicy: String = "manual"
     private var manualDisconnect = false
     @Volatile
-    private var ptyCols: Int = 64
+    private var ptyCols: Int = 100
     @Volatile
-    private var ptyRows: Int = 24
+    private var ptyRows: Int = 40
     @Volatile
     private var ptyPixelWidth: Int = 0
     @Volatile
@@ -99,8 +99,8 @@ class SshAttachRepository(
     }
 
     fun resizePty(cols: Int, rows: Int, pixelWidth: Int = 0, pixelHeight: Int = 0) {
-        val safeCols = cols.coerceAtLeast(8)
-        val safeRows = rows.coerceAtLeast(4)
+        val safeCols = cols.coerceAtLeast(100)
+        val safeRows = rows.coerceAtLeast(40)
         ptyCols = safeCols
         ptyRows = safeRows
         ptyPixelWidth = pixelWidth.coerceAtLeast(0)

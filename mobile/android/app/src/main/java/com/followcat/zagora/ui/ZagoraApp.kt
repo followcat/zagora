@@ -1018,10 +1018,9 @@ private fun AttachScreen(
         val lineHeightPx = with(density) { ((terminalFontSize + 5f).sp.toPx()).coerceAtLeast(10f) }
         val rawCols = (availableWidth / charWidthPx).toInt().coerceAtLeast(1)
         val rawRows = (availableHeight / lineHeightPx).toInt().coerceAtLeast(1)
-        // zellij may require at least 80x35 (depends on layout/plugins).
-        // Keep a safe PTY size and rely on horizontal/vertical scroll for small phone viewports.
-        val cols = rawCols.coerceIn(80, 160)
-        val rows = rawRows.coerceIn(35, 80)
+        // zellij panes/status bars consume space; keep higher PTY headroom on phones.
+        val cols = rawCols.coerceIn(100, 180)
+        val rows = rawRows.coerceIn(40, 90)
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
