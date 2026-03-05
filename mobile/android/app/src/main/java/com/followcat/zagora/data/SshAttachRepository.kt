@@ -390,15 +390,23 @@ class SshAttachRepository(
     private fun buildAttachCommand(sessionName: String): String {
         val cleanName = sessionName.trim()
         val qName = shellEscape(cleanName)
-        val attachCmd = if (cleanName.isBlank()) "\"\$_zg_bin\" attach" else "\"\$_zg_bin\" attach -c $qName"
-        val sttyCmd = "stty cols $ptyCols rows $ptyRows 2>/dev/null || true"
-        return (
-            "$sttyCmd; " +
-                "if command -v zellij >/dev/null 2>&1; then _zg_bin=zellij; " +
-                "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then _zg_bin=\"\$HOME/.local/bin/zellij\"; " +
-                "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; unset _zg_bin; fi; " +
-                "if [ -n \"\$_zg_bin\" ]; then $attachCmd; fi"
+        val attachCmd = if (cleanName.isBlank()) {
+            "exec zellij attach"
+        } else {
+            "exec zellij attach -c $qName"
+        }
+        val fallbackAttachCmd = if (cleanName.isBlank()) {
+            "exec \"\$HOME/.local/bin/zellij\" attach"
+        } else {
+            "exec \"\$HOME/.local/bin/zellij\" attach -c $qName"
+        }
+        val script = (
+            "stty cols $ptyCols rows $ptyRows 2>/dev/null || true; " +
+                "if command -v zellij >/dev/null 2>&1; then $attachCmd; " +
+                "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then $fallbackAttachCmd; " +
+                "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; fi"
             )
+        return "/bin/sh -lc ${shellEscape(script)}"
     }
 
     private fun mapError(err: Throwable): Pair<AttachErrorCode, String> {
