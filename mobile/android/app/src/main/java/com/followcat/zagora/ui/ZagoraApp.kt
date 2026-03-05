@@ -117,6 +117,10 @@ private enum class MobileScreen {
     Settings
 }
 
+// Temporary kill-switch: some devices still crash inside termlib renderer path.
+// Keep attach usable via fallback renderer until we finish device-specific stabilization.
+private const val ENABLE_TERMLIB_RENDERER = false
+
 @Composable
 fun ZagoraApp(
     vm: MainViewModel = viewModel(),
@@ -968,20 +972,25 @@ private fun AttachScreen(
     val density = LocalDensity.current
     val defaultForeground = MaterialTheme.colorScheme.onBackground
     val defaultBackground = MaterialTheme.colorScheme.background
-    val term = remember(target.host, target.name) {
-        runCatching {
-            TerminalEmulatorFactory.create(
-                initialRows = 24,
-                initialCols = 64,
-                defaultForeground = defaultForeground,
-                defaultBackground = defaultBackground,
-                onKeyboardInput = { bytes -> onSendRaw(bytes) },
-                onResize = { dim -> onResizeTerminal(dim.columns, dim.rows, 0, 0) }
-            )
-        }.onFailure { err ->
-            termlibInitError = err.message ?: err::class.simpleName
-            Log.e("ZagoraAttach", "Failed to init termlib terminal", err)
-        }.getOrNull()
+    val term = if (ENABLE_TERMLIB_RENDERER) {
+        remember(target.host, target.name) {
+            runCatching {
+                TerminalEmulatorFactory.create(
+                    initialRows = 24,
+                    initialCols = 64,
+                    defaultForeground = defaultForeground,
+                    defaultBackground = defaultBackground,
+                    onKeyboardInput = { bytes -> onSendRaw(bytes) },
+                    onResize = { dim -> onResizeTerminal(dim.columns, dim.rows, 0, 0) }
+                )
+            }.onFailure { err ->
+                termlibInitError = err.message ?: err::class.simpleName
+                Log.e("ZagoraAttach", "Failed to init termlib terminal", err)
+            }.getOrNull()
+        }
+    } else {
+        termlibInitError = "termlib disabled (temporary safe mode)"
+        null
     }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
