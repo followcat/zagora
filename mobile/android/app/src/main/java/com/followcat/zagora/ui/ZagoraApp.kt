@@ -29,6 +29,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.focusable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -89,6 +90,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -96,6 +99,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -958,7 +966,7 @@ private fun AttachScreen(
     val clipboard = LocalClipboardManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val imeFocusRequester = remember(target.host, target.name) { FocusRequester() }
-    var imeBuffer by remember(target.host, target.name) { mutableStateOf("") }
+    var imeBuffer by remember(target.host, target.name) { mutableStateOf(TextFieldValue("")) }
     val density = LocalDensity.current
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
@@ -1230,18 +1238,39 @@ private fun AttachScreen(
                 BasicTextField(
                     value = imeBuffer,
                     onValueChange = { next ->
-                        val old = imeBuffer
-                        if (next == old) return@BasicTextField
-                        val prefixLen = old.commonPrefixWith(next).length
-                        val deleted = (old.length - prefixLen).coerceAtLeast(0)
-                        val inserted = next.substring(prefixLen)
-                        if (deleted > 0) onPasteRaw("\b".repeat(deleted))
+                        val oldText = imeBuffer.text
+                        val newText = next.text
+                        if (newText == oldText) return@BasicTextField
+                        if (newText.length < oldText.length) {
+                            onPasteRaw("\b".repeat(oldText.length - newText.length))
+                        }
+                        val inserted = if (newText.startsWith(oldText)) {
+                            newText.substring(oldText.length)
+                        } else {
+                            newText
+                        }
                         if (inserted.isNotEmpty()) onPasteRaw(inserted)
-                        imeBuffer = next.takeLast(128)
+                        // Keep IME bridge buffer short and stable to avoid drift from autocorrect/composition.
+                        imeBuffer = TextFieldValue("", selection = TextRange.Zero)
                     },
                     modifier = Modifier
                         .size(1.dp)
-                        .focusRequester(imeFocusRequester),
+                        .focusRequester(imeFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent { evt ->
+                            if (evt.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (evt.key) {
+                                Key.Enter -> {
+                                    onPasteRaw("\n")
+                                    true
+                                }
+                                Key.Backspace -> {
+                                    onPasteRaw("\b")
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
                     keyboardOptions = KeyboardOptions(
                         autoCorrect = false,
                         imeAction = ImeAction.None
