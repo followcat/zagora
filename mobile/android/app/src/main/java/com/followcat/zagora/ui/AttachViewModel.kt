@@ -18,6 +18,7 @@ class AttachViewModel : ViewModel() {
     val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
     private var lastConnectParams: ConnectParams? = null
     private var inForeground = true
+    private var lastBackgroundAtMs: Long = 0L
 
     fun setReconnectPolicy(policy: String) {
         repo.setReconnectPolicy(policy)
@@ -38,12 +39,30 @@ class AttachViewModel : ViewModel() {
     fun onAppBackground() {
         // Keep connection alive in background; do not proactively disconnect.
         inForeground = false
+        lastBackgroundAtMs = System.currentTimeMillis()
     }
 
     fun onAppForeground() {
         inForeground = true
-        val st = state.value
         val params = lastConnectParams ?: return
+        val st = state.value
+        val now = System.currentTimeMillis()
+        val sleptMs = (now - lastBackgroundAtMs).coerceAtLeast(0L)
+        val shouldForceReconnect = sleptMs >= 15_000L
+
+        if (shouldForceReconnect) {
+            viewModelScope.launch {
+                repo.connect(
+                    host = params.host,
+                    user = params.user,
+                    password = params.password,
+                    sessionName = params.sessionName,
+                    isReconnect = true
+                )
+            }
+            return
+        }
+
         if (st.connected || st.connecting) return
         if (st.phase == com.followcat.zagora.data.AttachPhase.Disconnected || st.phase == com.followcat.zagora.data.AttachPhase.Error) {
             viewModelScope.launch {

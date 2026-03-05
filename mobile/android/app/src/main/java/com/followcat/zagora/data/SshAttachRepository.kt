@@ -172,6 +172,9 @@ class SshAttachRepository(
                     session.setPassword(password)
                 }
                 session.setConfig("StrictHostKeyChecking", "no")
+                // Detect dead network paths faster after screen-off / wake-up.
+                session.serverAliveInterval = 10_000
+                session.serverAliveCountMax = 1
                 session.connect(10_000)
 
                 val channel = session.openChannel("shell") as ChannelShell
