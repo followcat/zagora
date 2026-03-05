@@ -4,8 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.followcat.zagora.data.AttachState
 import com.followcat.zagora.data.SshAttachRepository
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,9 +15,7 @@ class AttachViewModel : ViewModel() {
     private val _sticky = MutableStateFlow(StickyModifiers())
     val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
     private var lastConnectParams: ConnectParams? = null
-    private var resumeAfterBackground = false
     private var inForeground = true
-    private var backgroundDisconnectJob: Job? = null
 
     fun setReconnectPolicy(policy: String) {
         repo.setReconnectPolicy(policy)
@@ -31,52 +27,32 @@ class AttachViewModel : ViewModel() {
 
     fun connect(host: String, user: String, password: String, sessionName: String) {
         lastConnectParams = ConnectParams(host = host, user = user, password = password, sessionName = sessionName)
-        resumeAfterBackground = false
         inForeground = true
-        backgroundDisconnectJob?.cancel()
-        backgroundDisconnectJob = null
         viewModelScope.launch {
             repo.connect(host = host, user = user, password = password, sessionName = sessionName)
         }
     }
 
     fun onAppBackground() {
+        // Keep connection alive in background; do not proactively disconnect.
         inForeground = false
-        val st = state.value
-        val hasTarget = lastConnectParams != null
-        if (!hasTarget) return
-        if (st.connected || st.connecting) {
-            backgroundDisconnectJob?.cancel()
-            backgroundDisconnectJob = viewModelScope.launch {
-                // Keep connection for quick app switches. Disconnect only after grace period.
-                delay(BACKGROUND_KEEPALIVE_GRACE_MS)
-                if (inForeground) return@launch
-                val cur = state.value
-                if (cur.connected || cur.connecting) {
-                    resumeAfterBackground = true
-                    repo.disconnect()
-                }
-            }
-        }
     }
 
     fun onAppForeground() {
         inForeground = true
-        backgroundDisconnectJob?.cancel()
-        backgroundDisconnectJob = null
         val st = state.value
         val params = lastConnectParams ?: return
-        if (!resumeAfterBackground) return
         if (st.connected || st.connecting) return
-        resumeAfterBackground = false
-        viewModelScope.launch {
-            repo.connect(
-                host = params.host,
-                user = params.user,
-                password = params.password,
-                sessionName = params.sessionName,
-                isReconnect = true
-            )
+        if (st.phase == com.followcat.zagora.data.AttachPhase.Disconnected || st.phase == com.followcat.zagora.data.AttachPhase.Error) {
+            viewModelScope.launch {
+                repo.connect(
+                    host = params.host,
+                    user = params.user,
+                    password = params.password,
+                    sessionName = params.sessionName,
+                    isReconnect = true
+                )
+            }
         }
     }
 
@@ -188,9 +164,6 @@ class AttachViewModel : ViewModel() {
     }
 
     fun disconnect() {
-        resumeAfterBackground = false
-        backgroundDisconnectJob?.cancel()
-        backgroundDisconnectJob = null
         repo.disconnect()
     }
 
@@ -206,8 +179,4 @@ class AttachViewModel : ViewModel() {
         val sessionName: String
     )
 
-    private companion object {
-        // Don't disconnect immediately when app goes background.
-        const val BACKGROUND_KEEPALIVE_GRACE_MS = 120_000L
-    }
 }
