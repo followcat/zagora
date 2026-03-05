@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -100,6 +101,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.followcat.zagora.data.SettingsStore
 import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
+import android.util.Log
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -957,6 +959,9 @@ private fun AttachScreen(
     var showGestureHint by remember(target.host, target.name) { mutableStateOf(true) }
     var showTransientStats by remember(target.host, target.name) { mutableStateOf(false) }
     var suppressAutoReconnect by remember(target.host, target.name) { mutableStateOf(false) }
+    var termlibInitError by remember(target.host, target.name) { mutableStateOf<String?>(null) }
+    val outputScroll = rememberScrollState()
+    val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
     val imeVisible = WindowInsets.isImeVisible
     val terminalFocusRequester = remember(target.host, target.name) { FocusRequester() }
@@ -964,14 +969,19 @@ private fun AttachScreen(
     val defaultForeground = MaterialTheme.colorScheme.onBackground
     val defaultBackground = MaterialTheme.colorScheme.background
     val term = remember(target.host, target.name) {
-        TerminalEmulatorFactory.create(
-            initialRows = 24,
-            initialCols = 64,
-            defaultForeground = defaultForeground,
-            defaultBackground = defaultBackground,
-            onKeyboardInput = { bytes -> onSendRaw(bytes) },
-            onResize = { dim -> onResizeTerminal(dim.columns, dim.rows, 0, 0) }
-        )
+        runCatching {
+            TerminalEmulatorFactory.create(
+                initialRows = 24,
+                initialCols = 64,
+                defaultForeground = defaultForeground,
+                defaultBackground = defaultBackground,
+                onKeyboardInput = { bytes -> onSendRaw(bytes) },
+                onResize = { dim -> onResizeTerminal(dim.columns, dim.rows, 0, 0) }
+            )
+        }.onFailure { err ->
+            termlibInitError = err.message ?: err::class.simpleName
+            Log.e("ZagoraAttach", "Failed to init termlib terminal", err)
+        }.getOrNull()
     }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
@@ -1001,7 +1011,7 @@ private fun AttachScreen(
 
     LaunchedEffect(incomingBytes, target.host, target.name) {
         incomingBytes.collect { chunk ->
-            if (chunk.isNotEmpty()) {
+            if (chunk.isNotEmpty() && term != null) {
                 term.writeInput(chunk, 0, chunk.size)
             }
         }
@@ -1025,11 +1035,16 @@ private fun AttachScreen(
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
-        term.resize(rows, cols)
+        term?.resize(rows, cols)
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
     }
     LaunchedEffect(attachState.output) {
         renderedTerminal = attachState.output.takeLast(120_000)
+    }
+    LaunchedEffect(attachState.output, followOutput, term) {
+        if (term == null && followOutput) {
+            outputScroll.scrollTo(outputScroll.maxValue)
+        }
     }
     LaunchedEffect(showGestureHint) {
         if (showGestureHint) {
@@ -1224,24 +1239,59 @@ private fun AttachScreen(
                 .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                Terminal(
-                    terminalEmulator = term,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .onSizeChanged { terminalViewportPx = it }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                    initialFontSize = terminalFontSize.sp,
-                    minFontSize = 10.sp,
-                    maxFontSize = 22.sp,
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    foregroundColor = MaterialTheme.colorScheme.onBackground,
-                    keyboardEnabled = true,
-                    focusRequester = terminalFocusRequester,
-                    onTerminalTap = {
-                        showGestureHint = false
-                        terminalFocusRequester.requestFocus()
+                if (term != null) {
+                    Terminal(
+                        terminalEmulator = term,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onSizeChanged { terminalViewportPx = it }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        initialFontSize = terminalFontSize.sp,
+                        minFontSize = 10.sp,
+                        maxFontSize = 22.sp,
+                        backgroundColor = MaterialTheme.colorScheme.background,
+                        foregroundColor = MaterialTheme.colorScheme.onBackground,
+                        keyboardEnabled = true,
+                        focusRequester = terminalFocusRequester,
+                        onTerminalTap = {
+                            showGestureHint = false
+                            terminalFocusRequester.requestFocus()
+                        }
+                    )
+                } else {
+                    SelectionContainer {
+                        Text(
+                            text = renderedTerminal.ifBlank { "# waiting for shell output..." },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onSizeChanged { terminalViewportPx = it }
+                                .horizontalScroll(outputScrollX)
+                                .verticalScroll(outputScroll)
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = terminalFontSize.sp,
+                            lineHeight = (terminalFontSize + 6f).sp,
+                            softWrap = false
+                        )
                     }
-                )
+                }
+            }
+
+            if (termlibInitError != null) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                ) {
+                    Text(
+                        text = "Terminal fallback mode: $termlibInitError",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
 
             AnimatedVisibility(
