@@ -302,8 +302,12 @@ class SshAttachRepository(
             var pending = ByteArray(0)
             while (!Thread.currentThread().isInterrupted && channel.isConnected) {
                 val n = runCatching { input.read(buf) }.getOrElse { -1 }
-                if (n <= 0) {
+                if (n < 0) {
                     break
+                }
+                if (n == 0) {
+                    delay(25)
+                    continue
                 }
                 val merged = if (pending.isEmpty()) {
                     buf.copyOfRange(0, n)
@@ -345,7 +349,7 @@ class SshAttachRepository(
                     connecting = false,
                     phase = if (reconnectPolicy == "auto3" && !manualDisconnect) AttachPhase.Reconnecting else AttachPhase.Disconnected,
                     canRetry = true,
-                    message = "Disconnected"
+                    message = if (channel.isConnected) "Connection stalled" else "Disconnected"
                 )
             }
             if (!manualDisconnect && reconnectPolicy == "auto3") {

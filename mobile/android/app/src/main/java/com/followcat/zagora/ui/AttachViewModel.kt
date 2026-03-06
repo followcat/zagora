@@ -44,6 +44,7 @@ class AttachViewModel : ViewModel() {
         inForeground = true
         val params = lastConnectParams ?: return
         val st = state.value
+        if (st.connected || st.connecting) return
         val now = System.currentTimeMillis()
         val sleptMs = (now - lastBackgroundAtMs).coerceAtLeast(0L)
         val shouldForceReconnect = sleptMs >= 15_000L
@@ -60,8 +61,6 @@ class AttachViewModel : ViewModel() {
             }
             return
         }
-
-        if (st.connected || st.connecting) return
         if (st.phase == com.followcat.zagora.data.AttachPhase.Disconnected || st.phase == com.followcat.zagora.data.AttachPhase.Error) {
             viewModelScope.launch {
                 repo.connect(
