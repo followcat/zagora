@@ -120,6 +120,23 @@ class SshAttachRepository(
         val cleanHost = host.trim()
         val cleanUser = user.trim()
         val cleanSession = sessionName.trim()
+        val current = _state.value
+        val sameTarget = current.host == cleanHost &&
+            current.user == cleanUser &&
+            current.sessionName == cleanSession
+        val activePhase = current.phase == AttachPhase.Connecting ||
+            current.phase == AttachPhase.Attaching ||
+            current.phase == AttachPhase.Connected ||
+            current.phase == AttachPhase.Reconnecting
+        if (sameTarget && activePhase && shell?.isConnected == true && sshSession?.isConnected == true) {
+            _state.update {
+                it.copy(
+                    canRetry = true,
+                    message = "Attach already active for ${cleanSession.ifBlank { "default" }}"
+                )
+            }
+            return
+        }
         if (cleanHost.isBlank() || cleanUser.isBlank()) {
             _state.update {
                 it.copy(
