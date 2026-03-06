@@ -1,5 +1,7 @@
 package com.followcat.zagora.ui
 
+import android.graphics.Typeface
+import android.os.Looper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
@@ -112,8 +114,12 @@ import com.followcat.zagora.model.Session
 import com.followcat.zagora.util.openInExternalSshApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.connectbot.terminal.ModifierManager
+import org.connectbot.terminal.Terminal as ConnectBotTerminal
+import org.connectbot.terminal.TerminalEmulatorFactory
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -164,6 +170,7 @@ fun ZagoraApp(
             AttachScreen(
                 target = attachTarget!!,
                 attachState = attachState,
+                incomingBytes = attachVm.incomingBytes,
                 initialUser = savedSessionSsh.first.ifBlank { sshUser },
                 initialPassword = savedSessionSsh.second,
                 onBack = {
@@ -203,6 +210,7 @@ fun ZagoraApp(
                 onSendEnd = { attachVm.sendEnd() },
                 onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
                 onSendTextRaw = { txt -> attachVm.sendTextRaw(txt) },
+                onSendRawBytes = { bytes -> attachVm.sendRaw(bytes) },
                 onResizeTerminal = { cols, rows, pxWidth, pxHeight ->
                     attachVm.resizeTerminal(cols, rows, pxWidth, pxHeight)
                 },
@@ -922,6 +930,7 @@ private fun StatusBadge(text: String, bg: Color) {
 private fun AttachScreen(
     target: Session,
     attachState: com.followcat.zagora.data.AttachState,
+    incomingBytes: SharedFlow<ByteArray>,
     initialUser: String,
     initialPassword: String,
     onBack: () -> Unit,
@@ -940,6 +949,7 @@ private fun AttachScreen(
     onSendEnd: () -> Unit,
     onPasteRaw: (String) -> Unit,
     onSendTextRaw: (String) -> Unit,
+    onSendRawBytes: (ByteArray) -> Unit,
     onResizeTerminal: (Int, Int, Int, Int) -> Unit,
     stickyCtrl: Boolean,
     stickyAlt: Boolean,
@@ -973,7 +983,32 @@ private fun AttachScreen(
     val imeVisible = WindowInsets.isImeVisible
     val density = LocalDensity.current
     val inputFocusRequester = remember(target.host, target.name) { FocusRequester() }
-    val term = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
+    val fallbackTerm = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
+    val terminalPalette = terminalColorPalette()
+    val terminalTypefaceFamily = remember(terminalFontPack) { terminalFontFamily(terminalFontPack) }
+    val termlibTerminal = remember(target.host, target.name) {
+        runCatching {
+            TerminalEmulatorFactory.Companion.create(
+                Looper.getMainLooper(),
+                24,
+                64,
+                terminalPalette.defaultForeground,
+                terminalPalette.defaultBackground,
+                { bytes ->
+                    if (bytes.isNotEmpty()) onSendRawBytes(bytes)
+                },
+                {},
+                null,
+                { copied ->
+                    if (copied.isNotBlank()) {
+                        clipboard.setText(AnnotatedString(copied))
+                    }
+                },
+                null
+            )
+        }.getOrNull()
+    }
+    val useFallbackTerminal = termlibTerminal == null
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
@@ -1003,28 +1038,35 @@ private fun AttachScreen(
         }
     }
 
-    LaunchedEffect(attachState.output) {
+    LaunchedEffect(attachState.output, useFallbackTerminal) {
+        if (!useFallbackTerminal) return@LaunchedEffect
         val out = attachState.output
         if (out.length < processedLen) {
-            term.reset()
+            fallbackTerm.reset()
             processedLen = 0
             renderedTerminal = "# waiting for shell output..."
         }
         if (out.length > processedLen) {
             val delta = out.substring(processedLen)
-            term.feed(delta)
+            fallbackTerm.feed(delta)
             processedLen = out.length
-            renderedTerminal = term.renderText().ifBlank { "# waiting for shell output..." }
+            renderedTerminal = fallbackTerm.renderText().ifBlank { "# waiting for shell output..." }
         }
     }
 
-    val terminalPalette = terminalColorPalette()
-    val terminalTypefaceFamily = remember(terminalFontPack) { terminalFontFamily(terminalFontPack) }
     val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
-        term.renderAnnotated(terminalPalette)
+        fallbackTerm.renderAnnotated(terminalPalette)
+    }
+    LaunchedEffect(termlibTerminal, incomingBytes) {
+        val terminal = termlibTerminal ?: return@LaunchedEffect
+        incomingBytes.collect { bytes ->
+            if (bytes.isNotEmpty()) {
+                terminal.writeInput(bytes, 0, bytes.size)
+            }
+        }
     }
 
-    LaunchedEffect(terminalViewportPx, terminalFontSize, extraKeysVisible) {
+    LaunchedEffect(terminalViewportPx, terminalFontSize, extraKeysVisible, termlibTerminal, useFallbackTerminal) {
         if (terminalViewportPx.width <= 0 || terminalViewportPx.height <= 0) return@LaunchedEffect
         val viewportWidth = terminalViewportPx.width.toFloat().coerceAtLeast(1f)
         val viewportHeight = terminalViewportPx.height.toFloat().coerceAtLeast(1f)
@@ -1042,7 +1084,11 @@ private fun AttachScreen(
         val grid = IntSize(cols, rows)
         if (grid == lastAppliedGrid) return@LaunchedEffect
         lastAppliedGrid = grid
-        term.resize(cols, rows)
+        if (useFallbackTerminal) {
+            fallbackTerm.resize(cols, rows)
+        } else {
+            termlibTerminal?.resize(rows, cols)
+        }
         onResizeTerminal(cols, rows, terminalViewportPx.width, terminalViewportPx.height)
     }
     LaunchedEffect(attachState.output, followOutput) {
@@ -1210,7 +1256,15 @@ private fun AttachScreen(
                             item { KeyPill(label = "HOME", enabled = attachState.connected, onClick = onSendHome) }
                             item { KeyPill(label = "END", enabled = attachState.connected, onClick = onSendEnd) }
                             item { KeyPill(label = "KB", onClick = requestIme) }
-                            item { KeyPill(label = "COPY", onClick = { clipboard.setText(AnnotatedString(renderedTerminal)) }) }
+                            item {
+                                KeyPill(
+                                    label = "COPY",
+                                    onClick = {
+                                        val copyText = if (useFallbackTerminal) renderedTerminal else attachState.output
+                                        clipboard.setText(AnnotatedString(copyText))
+                                    }
+                                )
+                            }
                             item {
                                 KeyPill(
                                     label = "PASTE",
@@ -1246,20 +1300,53 @@ private fun AttachScreen(
                         .fillMaxSize()
                         .clickable { requestIme() }
                 ) {
-                    SelectionContainer {
-                        Text(
-                            text = terminalAnnotated,
+                    if (useFallbackTerminal) {
+                        SelectionContainer {
+                            Text(
+                                text = terminalAnnotated,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .onSizeChanged { terminalViewportPx = it }
+                                    .horizontalScroll(outputScrollX)
+                                    .verticalScroll(outputScroll)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontFamily = terminalTypefaceFamily,
+                                fontSize = terminalFontSize.sp,
+                                lineHeight = (terminalFontSize + 6f).sp,
+                                softWrap = false
+                            )
+                        }
+                    } else {
+                        ConnectBotTerminal(
+                            terminalEmulator = termlibTerminal!!,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .onSizeChanged { terminalViewportPx = it }
-                                .horizontalScroll(outputScrollX)
-                                .verticalScroll(outputScroll)
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontFamily = terminalTypefaceFamily,
-                            fontSize = terminalFontSize.sp,
-                            lineHeight = (terminalFontSize + 6f).sp,
-                            softWrap = false
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            typeface = Typeface.MONOSPACE,
+                            initialFontSize = terminalFontSize.sp,
+                            minFontSize = 10.sp,
+                            maxFontSize = 22.sp,
+                            backgroundColor = terminalPalette.defaultBackground,
+                            foregroundColor = terminalPalette.defaultForeground,
+                            keyboardEnabled = false,
+                            showSoftKeyboard = false,
+                            focusRequester = inputFocusRequester,
+                            onTerminalTap = requestIme,
+                            onImeVisibilityChanged = {},
+                            forcedSize = null,
+                            modifierManager = remember(stickyCtrl, stickyAlt) {
+                                object : ModifierManager {
+                                    override fun isCtrlActive(): Boolean = stickyCtrl
+                                    override fun isAltActive(): Boolean = stickyAlt
+                                    override fun isShiftActive(): Boolean = false
+                                    override fun clearTransients() = Unit
+                                }
+                            },
+                            onSelectionControllerAvailable = {},
+                            onHyperlinkClick = {},
+                            onComposeControllerAvailable = {}
                         )
                     }
                     BasicTextField(
