@@ -215,8 +215,7 @@ class SshAttachRepository(
                     message = "Connected $cleanUser@$cleanHost. Attaching zellij..."
                 )
             }
-            sendLine(buildHistoryGuardCommand())
-            sendLine(buildAttachCommand(cleanSession))
+            sendLine(buildStartupCommand(cleanSession))
             _state.update {
                 it.copy(
                     connecting = false,
@@ -447,6 +446,10 @@ class SshAttachRepository(
                 "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then $fallbackAttachCmd; " +
                 "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; fi"
             )
+    }
+
+    private fun buildStartupCommand(sessionName: String): String {
+        return buildHistoryGuardCommand() + "; " + buildAttachCommand(sessionName)
     }
 
     private fun mapError(err: Throwable): Pair<AttachErrorCode, String> {
