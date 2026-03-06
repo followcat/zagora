@@ -643,7 +643,7 @@ private fun SettingsScreen(
                 shape = RoundedCornerShape(ZagoraRadius.card),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Terminal", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                     ListItem(
                         colors = zagoraListItemColors(),
@@ -673,49 +673,54 @@ private fun SettingsScreen(
                             )
                         }
                     )
-                    ListItem(
-                        colors = zagoraListItemColors(),
-                        headlineContent = { Text("Terminal font", color = MaterialTheme.colorScheme.onSurface) },
-                        supportingContent = { Text(localFontPack.title, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        trailingContent = {
-                            SingleChoiceSegmentedButtonRow {
-                                SegmentedButton(
-                                    selected = localFontPack == TerminalFontPack.System,
-                                    onClick = { localFontPack = TerminalFontPack.System },
-                                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
-                                ) { Text("Sys") }
-                                SegmentedButton(
-                                    selected = localFontPack == TerminalFontPack.JetBrains,
-                                    onClick = { localFontPack = TerminalFontPack.JetBrains },
-                                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
-                                ) { Text("JB") }
-                                SegmentedButton(
-                                    selected = localFontPack == TerminalFontPack.JetBrainsNerd,
-                                    onClick = { localFontPack = TerminalFontPack.JetBrainsNerd },
-                                    shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
-                                ) { Text("Nerd") }
-                            }
+                    SettingsChoiceGroup(
+                        title = "Terminal font",
+                        subtitle = localFontPack.title
+                    ) {
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            SegmentedButton(
+                                modifier = Modifier.weight(1f),
+                                selected = localFontPack == TerminalFontPack.System,
+                                onClick = { localFontPack = TerminalFontPack.System },
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3)
+                            ) { Text("Sys", maxLines = 1) }
+                            SegmentedButton(
+                                modifier = Modifier.weight(1f),
+                                selected = localFontPack == TerminalFontPack.JetBrains,
+                                onClick = { localFontPack = TerminalFontPack.JetBrains },
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3)
+                            ) { Text("JB", maxLines = 1) }
+                            SegmentedButton(
+                                modifier = Modifier.weight(1f),
+                                selected = localFontPack == TerminalFontPack.JetBrainsNerd,
+                                onClick = { localFontPack = TerminalFontPack.JetBrainsNerd },
+                                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3)
+                            ) { Text("Nerd", maxLines = 1) }
                         }
-                    )
-                    ListItem(
-                        colors = zagoraListItemColors(),
-                        headlineContent = { Text("Theme style", color = MaterialTheme.colorScheme.onSurface) },
-                        supportingContent = { Text(localThemeVariant.title, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        trailingContent = {
-                            SingleChoiceSegmentedButtonRow {
-                                SegmentedButton(
-                                    selected = localThemeVariant == ZagoraThemeVariant.Neon,
-                                    onClick = { localThemeVariant = ZagoraThemeVariant.Neon },
-                                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                                ) { Text("A") }
-                                SegmentedButton(
-                                    selected = localThemeVariant == ZagoraThemeVariant.Graphite,
-                                    onClick = { localThemeVariant = ZagoraThemeVariant.Graphite },
-                                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                                ) { Text("B") }
-                            }
+                    }
+                    SettingsChoiceGroup(
+                        title = "Theme style",
+                        subtitle = localThemeVariant.title
+                    ) {
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            SegmentedButton(
+                                modifier = Modifier.weight(1f),
+                                selected = localThemeVariant == ZagoraThemeVariant.Neon,
+                                onClick = { localThemeVariant = ZagoraThemeVariant.Neon },
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                            ) { Text("A", maxLines = 1) }
+                            SegmentedButton(
+                                modifier = Modifier.weight(1f),
+                                selected = localThemeVariant == ZagoraThemeVariant.Graphite,
+                                onClick = { localThemeVariant = ZagoraThemeVariant.Graphite },
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                            ) { Text("B", maxLines = 1) }
                         }
-                    )
+                    }
                 }
             }
 
@@ -759,6 +764,38 @@ private fun SettingsScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsChoiceGroup(
+    title: String,
+    subtitle: String,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = title,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = subtitle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        content()
     }
 }
 
