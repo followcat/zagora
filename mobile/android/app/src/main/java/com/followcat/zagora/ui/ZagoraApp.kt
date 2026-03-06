@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -83,17 +84,25 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -193,6 +202,7 @@ fun ZagoraApp(
                 onSendHome = { attachVm.sendHome() },
                 onSendEnd = { attachVm.sendEnd() },
                 onPasteRaw = { txt -> attachVm.pasteRaw(txt) },
+                onSendTextRaw = { txt -> attachVm.sendTextRaw(txt) },
                 onResizeTerminal = { cols, rows, pxWidth, pxHeight ->
                     attachVm.resizeTerminal(cols, rows, pxWidth, pxHeight)
                 },
@@ -317,6 +327,7 @@ private fun SessionsScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text("Sessions") },
@@ -928,6 +939,7 @@ private fun AttachScreen(
     onSendHome: () -> Unit,
     onSendEnd: () -> Unit,
     onPasteRaw: (String) -> Unit,
+    onSendTextRaw: (String) -> Unit,
     onResizeTerminal: (Int, Int, Int, Int) -> Unit,
     stickyCtrl: Boolean,
     stickyAlt: Boolean,
@@ -957,14 +969,20 @@ private fun AttachScreen(
     val outputScroll = rememberScrollState()
     val outputScrollX = rememberScrollState()
     val clipboard = LocalClipboardManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val imeVisible = WindowInsets.isImeVisible
     val density = LocalDensity.current
+    val inputFocusRequester = remember(target.host, target.name) { FocusRequester() }
     val term = remember(target.host, target.name) { TerminalEmulator(cols = 64, rows = 24) }
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
     var lastAppliedGrid by remember(target.host, target.name) { mutableStateOf(IntSize(0, 0)) }
     var processedLen by remember(target.host, target.name) { mutableStateOf(0) }
     var renderedTerminal by remember(target.host, target.name) { mutableStateOf("# waiting for shell output...") }
-    val requestIme: () -> Unit = {}
+    var hiddenInput by remember(target.host, target.name) { mutableStateOf(TextFieldValue("")) }
+    val requestIme: () -> Unit = {
+        inputFocusRequester.requestFocus()
+        keyboardController?.show()
+    }
 
     val manualDetach: () -> Unit = {
         suppressAutoReconnect = true
@@ -1045,15 +1063,10 @@ private fun AttachScreen(
         delay(2000)
         showTransientStats = false
     }
-    LaunchedEffect(attachState.phase, attachState.message, user, password) {
-        if (attachState.phase != com.followcat.zagora.data.AttachPhase.Disconnected) return@LaunchedEffect
-        if (!attachState.message.contains("Detached", ignoreCase = true)) return@LaunchedEffect
-        if (suppressAutoReconnect) {
+    LaunchedEffect(attachState.phase, attachState.message) {
+        if (attachState.phase == com.followcat.zagora.data.AttachPhase.Disconnected && suppressAutoReconnect) {
             suppressAutoReconnect = false
-            return@LaunchedEffect
         }
-        delay(500)
-        onConnect(user.trim(), password)
     }
     LaunchedEffect(target.host, target.name) {
         if (user.isBlank()) {
@@ -1225,30 +1238,67 @@ private fun AttachScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .imePadding()
                 .background(zagoraScreenBrush())
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                SelectionContainer {
-                    Text(
-                        text = terminalAnnotated,
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable { requestIme() }
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = terminalAnnotated,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onSizeChanged { terminalViewportPx = it }
+                                .horizontalScroll(outputScrollX)
+                                .verticalScroll(outputScroll)
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontFamily = terminalTypefaceFamily,
+                            fontSize = terminalFontSize.sp,
+                            lineHeight = (terminalFontSize + 6f).sp,
+                            softWrap = false
+                        )
+                    }
+                    BasicTextField(
+                        value = hiddenInput,
+                        onValueChange = { next ->
+                            val text = next.text
+                            if (text.isNotEmpty()) {
+                                onSendTextRaw(text)
+                                hiddenInput = TextFieldValue("")
+                            } else {
+                                hiddenInput = next
+                            }
+                        },
                         modifier = Modifier
-                            .fillMaxSize()
-                            .onSizeChanged { terminalViewportPx = it }
-                            .horizontalScroll(outputScrollX)
-                            .verticalScroll(outputScroll)
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontFamily = terminalTypefaceFamily,
-                        fontSize = terminalFontSize.sp,
-                        lineHeight = (terminalFontSize + 6f).sp,
-                        softWrap = false
+                            .size(1.dp)
+                            .align(Alignment.BottomStart)
+                            .focusRequester(inputFocusRequester)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.Backspace -> {
+                                        onSendTextRaw("\u007f")
+                                        true
+                                    }
+                                    Key.Enter -> {
+                                        onSendTextRaw("\n")
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
+                        textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.Transparent),
+                        cursorBrush = Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
                     )
                 }
             }
 
             AnimatedVisibility(
-                visible = showTransientStats,
+                visible = showTransientStats && !imeVisible,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(10.dp)
@@ -1266,7 +1316,7 @@ private fun AttachScreen(
                 }
             }
 
-            if (showGestureHint) {
+            if (showGestureHint && !imeVisible) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1283,7 +1333,7 @@ private fun AttachScreen(
                 }
             }
 
-            if (terminalState.conn is ConnState.Connecting || terminalState.conn is ConnState.Reconnecting) {
+            if ((terminalState.conn is ConnState.Connecting || terminalState.conn is ConnState.Reconnecting) && !imeVisible) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -1302,8 +1352,13 @@ private fun AttachScreen(
             if (terminalState.conn is ConnState.Disconnected && attachState.message.isNotBlank()) {
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(ZagoraSpacing.page),
+                        .align(if (imeVisible) Alignment.TopCenter else Alignment.Center)
+                        .padding(
+                            top = if (imeVisible) 12.dp else ZagoraSpacing.page,
+                            start = ZagoraSpacing.page,
+                            end = ZagoraSpacing.page,
+                            bottom = ZagoraSpacing.page
+                        ),
                     shape = RoundedCornerShape(ZagoraRadius.card),
                     color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
@@ -1321,6 +1376,62 @@ private fun AttachScreen(
                             )
                             CompactTonalButton(text = "Back", onClick = onBack)
                         }
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = extraKeysVisible && imeVisible,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        KeyPill(label = "ESC", enabled = attachState.connected, onClick = onSendEsc)
+                        KeyPill(label = "TAB", enabled = attachState.connected, onClick = onSendTab)
+                        KeyPill(
+                            label = "CTRL*",
+                            latched = stickyCtrl,
+                            enabled = attachState.connected,
+                            onClick = onToggleStickyCtrl
+                        )
+                        KeyPill(
+                            label = "ALT*",
+                            latched = stickyAlt,
+                            enabled = attachState.connected,
+                            onClick = onToggleStickyAlt
+                        )
+                        KeyPill(label = "←", enabled = attachState.connected, onClick = onSendArrowLeft)
+                        KeyPill(label = "↓", enabled = attachState.connected, onClick = onSendArrowDown)
+                        KeyPill(label = "↑", enabled = attachState.connected, onClick = onSendArrowUp)
+                        KeyPill(label = "→", enabled = attachState.connected, onClick = onSendArrowRight)
+                        KeyPill(label = "PGUP", enabled = attachState.connected, onClick = onSendPageUp)
+                        KeyPill(label = "PGDN", enabled = attachState.connected, onClick = onSendPageDown)
+                        KeyPill(
+                            label = "PASTE",
+                            enabled = attachState.connected,
+                            onClick = {
+                                val clip = clipboard.getText()?.text?.toString().orEmpty()
+                                if (clip.isEmpty()) return@KeyPill
+                                if (confirmMultilinePaste && clip.contains('\n')) {
+                                    pendingPaste = clip
+                                    showPasteConfirm = true
+                                } else {
+                                    onPasteRaw(clip)
+                                }
+                            }
+                        )
                     }
                 }
             }
