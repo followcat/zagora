@@ -182,7 +182,10 @@ class TerminalEmulator(
             }
             '\u000E' -> decLineDrawing = true
             '\u000F' -> decLineDrawing = false
-            '\n' -> lineFeed()
+            '\n' -> {
+                lineFeed()
+                cursorCol = 0
+            }
             '\r' -> cursorCol = 0
             '\b' -> cursorCol = (cursorCol - 1).coerceAtLeast(0)
             '\t' -> {
