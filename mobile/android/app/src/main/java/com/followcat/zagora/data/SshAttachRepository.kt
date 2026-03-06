@@ -61,6 +61,11 @@ data class AttachState(
 class SshAttachRepository(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+    companion object {
+        private const val MIN_ZELLIJ_COLS = 80
+        private const val MIN_ZELLIJ_ROWS = 35
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val shellSession = SshShellConnection(scope = scope, ioDispatcher = ioDispatcher)
     private val _state = MutableStateFlow(AttachState())
@@ -158,31 +163,35 @@ class SshAttachRepository(
             phase = if (isReconnect) AttachPhase.Reconnecting else AttachPhase.Connecting,
             errorCode = AttachErrorCode.None,
             canRetry = false,
+            rawBytesIn = 0,
+            rawBytesOut = 0,
+            output = "",
             message = if (isReconnect) "Reconnecting ${target.user}@${target.host} ..." else "Connecting ${target.user}@${target.host} ..."
         )
 
         runCatching {
+            val startupCommand = AttachStartupCommandBuilder.build(target.sessionName, currentPtySpec())
             shellSession.connect(
                 target = target,
                 ptySpec = currentPtySpec(),
+                startupCommand = startupCommand,
                 onChunk = { chunk -> handleReadChunk(chunk) },
-                onClosed = { channelStillConnected -> handleSessionClosed(channelStillConnected) }
+                onClosed = { closeInfo -> handleSessionClosed(closeInfo) }
             )
         }.onSuccess {
             _state.update {
                 it.copy(
-                    connecting = true,
-                    connected = false,
-                    phase = AttachPhase.Attaching,
+                    connecting = false,
+                    connected = true,
+                    phase = AttachPhase.Connected,
                     errorCode = AttachErrorCode.None,
                     canRetry = false,
                     latencyMs = (System.currentTimeMillis() - startAt).coerceAtLeast(1),
-                    message = "Connected ${target.user}@${target.host}. Launching zellij..."
+                    message = "Connected ${target.user}@${target.host}"
                 )
             }
             val startupCommand = AttachStartupCommandBuilder.build(target.sessionName, currentPtySpec())
-            shellSession.sendLine(startupCommand)
-            _state.update { it.copy(rawBytesOut = it.rawBytesOut + startupCommand.length + 1) }
+            _state.update { it.copy(rawBytesOut = it.rawBytesOut + startupCommand.length) }
         }.onFailure { err ->
             val (code, readable) = mapError(err)
             disconnect(updateState = false, cancelReconnectJob = !isReconnect)
@@ -258,8 +267,12 @@ class SshAttachRepository(
         _state.update { st ->
             val mergedOutput = (st.output + chunk.text).takeLast(120_000)
             val zellijMissing = chunk.text.contains("zellij not found", ignoreCase = true)
+            val zellijPanic = chunk.text.contains("panicked at", ignoreCase = true) ||
+                chunk.text.contains("ENOTTY", ignoreCase = true)
             val newMsg = if (zellijMissing) {
                 "Failed to start zellij: not installed on remote host"
+            } else if (zellijPanic) {
+                "Failed to start zellij in terminal environment"
             } else if (st.phase == AttachPhase.Attaching || st.phase == AttachPhase.Reconnecting || st.phase == AttachPhase.Connecting) {
                 "Attached to ${st.sessionName.ifBlank { "default" }}"
             } else {
@@ -269,24 +282,32 @@ class SshAttachRepository(
                 output = mergedOutput,
                 rawBytesIn = st.rawBytesIn + chunk.bytes.size,
                 connecting = false,
-                connected = true,
-                phase = if (zellijMissing) AttachPhase.Error else if (
+                connected = !zellijMissing && !zellijPanic,
+                phase = if (zellijMissing || zellijPanic) AttachPhase.Error else if (
                     st.phase == AttachPhase.Attaching || st.phase == AttachPhase.Reconnecting || st.phase == AttachPhase.Connecting
                 ) AttachPhase.Connected else st.phase,
-                errorCode = if (zellijMissing) AttachErrorCode.ZellijMissing else st.errorCode,
+                errorCode = if (zellijMissing) AttachErrorCode.ZellijMissing else if (zellijPanic) AttachErrorCode.Unknown else st.errorCode,
                 message = newMsg
             )
         }
     }
 
-    private suspend fun handleSessionClosed(channelStillConnected: Boolean) {
+    private suspend fun handleSessionClosed(closeInfo: AttachCloseInfo) {
+        val exitStatus = closeInfo.exitStatus
+        val stderrTail = closeInfo.stderrTail
+        val reason = when {
+            stderrTail.isNotBlank() -> stderrTail.lineSequence().lastOrNull { it.isNotBlank() } ?: stderrTail
+            exitStatus >= 0 -> "Remote process exited ($exitStatus)"
+            closeInfo.stillConnected -> "Connection stalled"
+            else -> "Disconnected"
+        }
         _state.update {
             it.copy(
                 connected = false,
                 connecting = false,
                 phase = if (reconnectPolicy == "auto3" && !manualDisconnect) AttachPhase.Reconnecting else AttachPhase.Disconnected,
                 canRetry = true,
-                message = if (channelStillConnected) "Connection stalled" else "Disconnected"
+                message = reason
             )
         }
         if (!manualDisconnect && reconnectPolicy == "auto3") {
@@ -342,8 +363,8 @@ class SshAttachRepository(
     )
 
     private fun currentPtySpec(): PtySpec = PtySpec(
-        cols = ptyCols,
-        rows = ptyRows,
+        cols = ptyCols.coerceAtLeast(MIN_ZELLIJ_COLS),
+        rows = ptyRows.coerceAtLeast(MIN_ZELLIJ_ROWS),
         pixelWidth = ptyPixelWidth,
         pixelHeight = ptyPixelHeight
     )

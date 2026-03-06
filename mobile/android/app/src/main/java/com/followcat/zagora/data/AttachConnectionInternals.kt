@@ -1,6 +1,7 @@
 package com.followcat.zagora.data
 
-import com.jcraft.jsch.ChannelShell
+import android.util.Log
+import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session as JschSession
 import kotlinx.coroutines.CoroutineDispatcher
@@ -33,18 +34,16 @@ internal data class AttachReadChunk(
     val text: String
 )
 
+internal data class AttachCloseInfo(
+    val stillConnected: Boolean,
+    val exitStatus: Int,
+    val stderrTail: String
+)
+
 internal object AttachStartupCommandBuilder {
     fun build(sessionName: String, ptySpec: PtySpec): String {
-        return buildHistoryGuardCommand() + "; " + buildAttachCommand(sessionName, ptySpec)
-    }
-
-    private fun buildHistoryGuardCommand(): String {
-        return (
-            "stty -echo 2>/dev/null || true; " +
-                "unset HISTFILE; export HISTFILE=/dev/null; export HISTSIZE=0; export SAVEHIST=0; " +
-                "set +o history 2>/dev/null || true; " +
-                "unsetopt SHARE_HISTORY INC_APPEND_HISTORY INC_APPEND_HISTORY_TIME 2>/dev/null || true"
-            )
+        val script = buildAttachCommand(sessionName, ptySpec)
+        return "/bin/sh -c ${shellEscape(script)}"
     }
 
     private fun buildAttachCommand(sessionName: String, ptySpec: PtySpec): String {
@@ -61,7 +60,7 @@ internal object AttachStartupCommandBuilder {
             "exec \"\$HOME/.local/bin/zellij\" attach -c $qName"
         }
         return (
-            "stty cols ${ptySpec.cols} rows ${ptySpec.rows} 2>/dev/null || true; " +
+            "export TERM=xterm-256color; " +
                 "if command -v zellij >/dev/null 2>&1; then $attachCmd; " +
                 "elif [ -x \"\$HOME/.local/bin/zellij\" ]; then $fallbackAttachCmd; " +
                 "else echo \"zagora: zellij not found on remote; run: zagora install-zellij -c <host>\"; fi"
@@ -78,11 +77,15 @@ internal class SshShellConnection(
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher
 ) {
+    companion object {
+        private const val TAG = "ZagoraAttach"
+    }
+
     @Volatile
     private var sshSession: JschSession? = null
 
     @Volatile
-    private var shell: ChannelShell? = null
+    private var shell: ChannelExec? = null
 
     @Volatile
     private var shellInput: java.io.OutputStream? = null
@@ -94,10 +97,12 @@ internal class SshShellConnection(
     suspend fun connect(
         target: AttachTarget,
         ptySpec: PtySpec,
+        startupCommand: String,
         onChunk: suspend (AttachReadChunk) -> Unit,
-        onClosed: suspend (Boolean) -> Unit
+        onClosed: suspend (AttachCloseInfo) -> Unit
     ) {
         withContext(ioDispatcher) {
+            Log.d(TAG, "connect start host=${target.host} user=${target.user} session=${target.sessionName}")
             val jsch = JSch()
             val session = jsch.getSession(target.user, target.host, 22)
             if (target.password.isNotBlank()) {
@@ -108,13 +113,17 @@ internal class SshShellConnection(
             session.serverAliveCountMax = 1
             session.connect(10_000)
 
-            val channel = session.openChannel("shell") as ChannelShell
+            val channel = session.openChannel("exec") as ChannelExec
+            channel.setPty(true)
             channel.setEnv("HISTFILE", "/dev/null")
             channel.setEnv("HISTSIZE", "0")
             channel.setEnv("SAVEHIST", "0")
             channel.setEnv("HISTCONTROL", "ignorespace:ignoredups")
+            channel.setCommand(startupCommand)
             channel.setPtyType("xterm-256color", ptySpec.cols, ptySpec.rows, ptySpec.pixelWidth, ptySpec.pixelHeight)
+            Log.d(TAG, "exec command=$startupCommand")
             channel.connect(10_000)
+            Log.d(TAG, "channel connected")
 
             sshSession = session
             shell = channel
@@ -158,22 +167,70 @@ internal class SshShellConnection(
     }
 
     private fun startReadLoop(
-        channel: ChannelShell,
+        channel: ChannelExec,
         onChunk: suspend (AttachReadChunk) -> Unit,
-        onClosed: suspend (Boolean) -> Unit
+        onClosed: suspend (AttachCloseInfo) -> Unit
     ) {
         readJob?.cancel()
         readJob = scope.launch {
             val input = channel.inputStream ?: return@launch
+            val errInput = runCatching { channel.extInputStream }.getOrNull()
             val buf = ByteArray(4096)
+            val errBuf = ByteArray(4096)
             val decoder = StandardCharsets.UTF_8.newDecoder().apply {
                 onMalformedInput(CodingErrorAction.REPLACE)
                 onUnmappableCharacter(CodingErrorAction.REPLACE)
             }
+            val errDecoder = StandardCharsets.UTF_8.newDecoder().apply {
+                onMalformedInput(CodingErrorAction.REPLACE)
+                onUnmappableCharacter(CodingErrorAction.REPLACE)
+            }
             var pending = ByteArray(0)
+            var errPending = ByteArray(0)
+            val stderrTail = StringBuilder()
+            suspend fun drainErr(nonBlocking: Boolean) {
+                if (errInput == null) return
+                while (true) {
+                    val errAvailable = runCatching { errInput.available() }.getOrDefault(0)
+                    if (nonBlocking && errAvailable <= 0) break
+                    val limit = if (errAvailable > 0) minOf(errBuf.size, errAvailable) else errBuf.size
+                    val errRead = runCatching { errInput.read(errBuf, 0, limit) }.getOrElse { -1 }
+                    if (errRead <= 0) break
+                    val errBytes = errBuf.copyOfRange(0, errRead)
+                    val errMerged = if (errPending.isEmpty()) {
+                        errBytes
+                    } else {
+                        ByteArray(errPending.size + errRead).also {
+                            System.arraycopy(errPending, 0, it, 0, errPending.size)
+                            System.arraycopy(errBuf, 0, it, errPending.size, errRead)
+                        }
+                    }
+                    val errByteBuffer = ByteBuffer.wrap(errMerged)
+                    val errCharBuffer = CharBuffer.allocate((errMerged.size * errDecoder.maxCharsPerByte()).toInt() + 2)
+                    errDecoder.decode(errByteBuffer, errCharBuffer, false)
+                    errCharBuffer.flip()
+                    val errChunk = errCharBuffer.toString()
+                    errPending = if (errByteBuffer.hasRemaining()) {
+                        ByteArray(errByteBuffer.remaining()).also { errByteBuffer.get(it) }
+                    } else {
+                        ByteArray(0)
+                    }
+                    Log.w(TAG, "stderr chunk=$errChunk")
+                    stderrTail.append(errChunk)
+                    if (stderrTail.length > 4000) {
+                        stderrTail.delete(0, stderrTail.length - 4000)
+                    }
+                    onChunk(AttachReadChunk(bytes = errBytes, text = errChunk))
+                    if (nonBlocking) break
+                }
+            }
             while (!Thread.currentThread().isInterrupted && channel.isConnected) {
+                drainErr(nonBlocking = true)
                 val n = runCatching { input.read(buf) }.getOrElse { -1 }
-                if (n < 0) break
+                if (n < 0) {
+                    drainErr(nonBlocking = false)
+                    break
+                }
                 if (n == 0) {
                     delay(25)
                     continue
@@ -199,7 +256,14 @@ internal class SshShellConnection(
                 }
                 onChunk(AttachReadChunk(bytes = bytes, text = chunk))
             }
-            onClosed(channel.isConnected)
+            Log.d(TAG, "channel closed connected=${channel.isConnected} exitStatus=${channel.exitStatus}")
+            onClosed(
+                AttachCloseInfo(
+                    stillConnected = channel.isConnected,
+                    exitStatus = channel.exitStatus,
+                    stderrTail = stderrTail.toString().trim()
+                )
+            )
         }
     }
 }
