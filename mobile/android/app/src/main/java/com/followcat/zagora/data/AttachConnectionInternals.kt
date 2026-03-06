@@ -1,7 +1,7 @@
 package com.followcat.zagora.data
 
 import android.util.Log
-import com.jcraft.jsch.ChannelExec
+import com.jcraft.jsch.ChannelShell
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session as JschSession
 import kotlinx.coroutines.CoroutineDispatcher
@@ -37,13 +37,13 @@ internal data class AttachReadChunk(
 internal data class AttachCloseInfo(
     val stillConnected: Boolean,
     val exitStatus: Int,
-    val stderrTail: String
+    val stderrTail: String,
+    val outputTail: String
 )
 
 internal object AttachStartupCommandBuilder {
     fun build(sessionName: String, ptySpec: PtySpec): String {
-        val script = buildAttachCommand(sessionName, ptySpec)
-        return "/bin/sh -c ${shellEscape(script)}"
+        return buildAttachCommand(sessionName, ptySpec)
     }
 
     private fun buildAttachCommand(sessionName: String, ptySpec: PtySpec): String {
@@ -67,10 +67,7 @@ internal object AttachStartupCommandBuilder {
             )
     }
 
-    private fun shellEscape(raw: String): String {
-        if (raw.isBlank()) return ""
-        return "'" + raw.replace("'", "'\"'\"'") + "'"
-    }
+    private fun shellEscape(raw: String): String = "'" + raw.replace("'", "'\"'\"'") + "'"
 }
 
 internal class SshShellConnection(
@@ -85,7 +82,7 @@ internal class SshShellConnection(
     private var sshSession: JschSession? = null
 
     @Volatile
-    private var shell: ChannelExec? = null
+    private var shell: ChannelShell? = null
 
     @Volatile
     private var shellInput: java.io.OutputStream? = null
@@ -109,25 +106,27 @@ internal class SshShellConnection(
                 session.setPassword(target.password)
             }
             session.setConfig("StrictHostKeyChecking", "no")
-            session.serverAliveInterval = 10_000
-            session.serverAliveCountMax = 1
+            session.serverAliveInterval = 30_000
+            session.serverAliveCountMax = 3
             session.connect(10_000)
 
-            val channel = session.openChannel("exec") as ChannelExec
+            val channel = session.openChannel("shell") as ChannelShell
             channel.setPty(true)
             channel.setEnv("HISTFILE", "/dev/null")
             channel.setEnv("HISTSIZE", "0")
             channel.setEnv("SAVEHIST", "0")
             channel.setEnv("HISTCONTROL", "ignorespace:ignoredups")
-            channel.setCommand(startupCommand)
             channel.setPtyType("xterm-256color", ptySpec.cols, ptySpec.rows, ptySpec.pixelWidth, ptySpec.pixelHeight)
-            Log.d(TAG, "exec command=$startupCommand")
+            Log.d(TAG, "shell startup command=$startupCommand")
             channel.connect(10_000)
             Log.d(TAG, "channel connected")
 
             sshSession = session
             shell = channel
             shellInput = channel.outputStream
+            delay(200)
+            shellInput?.write((startupCommand + "\n").toByteArray(StandardCharsets.UTF_8))
+            shellInput?.flush()
             startReadLoop(channel, onChunk, onClosed)
         }
     }
@@ -167,7 +166,7 @@ internal class SshShellConnection(
     }
 
     private fun startReadLoop(
-        channel: ChannelExec,
+        channel: ChannelShell,
         onChunk: suspend (AttachReadChunk) -> Unit,
         onClosed: suspend (AttachCloseInfo) -> Unit
     ) {
@@ -187,6 +186,7 @@ internal class SshShellConnection(
             }
             var pending = ByteArray(0)
             var errPending = ByteArray(0)
+            val outputTail = StringBuilder()
             val stderrTail = StringBuilder()
             suspend fun drainErr(nonBlocking: Boolean) {
                 if (errInput == null) return
@@ -254,14 +254,23 @@ internal class SshShellConnection(
                 } else {
                     ByteArray(0)
                 }
+                outputTail.append(chunk)
+                if (outputTail.length > 4000) {
+                    outputTail.delete(0, outputTail.length - 4000)
+                }
                 onChunk(AttachReadChunk(bytes = bytes, text = chunk))
             }
             Log.d(TAG, "channel closed connected=${channel.isConnected} exitStatus=${channel.exitStatus}")
+            val outputTailValue = outputTail.toString().trim()
+            if (outputTailValue.isNotBlank()) {
+                Log.w(TAG, "stdout tail=${outputTailValue.takeLast(1200)}")
+            }
             onClosed(
                 AttachCloseInfo(
                     stillConnected = channel.isConnected,
                     exitStatus = channel.exitStatus,
-                    stderrTail = stderrTail.toString().trim()
+                    stderrTail = stderrTail.toString().trim(),
+                    outputTail = outputTailValue
                 )
             )
         }

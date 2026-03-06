@@ -295,8 +295,10 @@ class SshAttachRepository(
     private suspend fun handleSessionClosed(closeInfo: AttachCloseInfo) {
         val exitStatus = closeInfo.exitStatus
         val stderrTail = closeInfo.stderrTail
+        val outputTail = closeInfo.outputTail
         val reason = when {
             stderrTail.isNotBlank() -> stderrTail.lineSequence().lastOrNull { it.isNotBlank() } ?: stderrTail
+            outputTail.isNotBlank() -> outputTail.lineSequence().lastOrNull { it.isNotBlank() } ?: outputTail
             exitStatus >= 0 -> "Remote process exited ($exitStatus)"
             closeInfo.stillConnected -> "Connection stalled"
             else -> "Disconnected"
