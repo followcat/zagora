@@ -227,6 +227,14 @@ internal fun AttachScreen(
             renderedTerminal = fallbackTerm.renderText().ifBlank { "# waiting for shell output..." }
         }
     }
+    LaunchedEffect(attachState.phase, useFallbackTerminal) {
+        if (!useFallbackTerminal) return@LaunchedEffect
+        if (attachState.phase == AttachPhase.Connecting || attachState.phase == AttachPhase.Reconnecting) {
+            fallbackTerm.reset()
+            processedLen = 0
+            renderedTerminal = "# waiting for shell output..."
+        }
+    }
 
     val terminalAnnotated = remember(renderedTerminal, terminalPalette) {
         fallbackTerm.renderAnnotated(terminalPalette)
