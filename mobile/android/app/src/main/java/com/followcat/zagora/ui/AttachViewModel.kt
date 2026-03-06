@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.followcat.zagora.data.AttachState
 import com.followcat.zagora.data.SshAttachRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -12,11 +13,10 @@ import kotlinx.coroutines.launch
 class AttachViewModel : ViewModel() {
     private val repo = SshAttachRepository()
     val state: StateFlow<AttachState> = repo.state
+    val incomingBytes: SharedFlow<ByteArray> = repo.incomingBytes
     private val _sticky = MutableStateFlow(StickyModifiers())
     val sticky: StateFlow<StickyModifiers> = _sticky.asStateFlow()
     private var lastConnectParams: ConnectParams? = null
-    private var inForeground = true
-    private var lastBackgroundAtMs: Long = 0L
 
     fun setReconnectPolicy(policy: String) {
         repo.setReconnectPolicy(policy)
@@ -28,7 +28,6 @@ class AttachViewModel : ViewModel() {
 
     fun connect(host: String, user: String, password: String, sessionName: String) {
         lastConnectParams = ConnectParams(host = host, user = user, password = password, sessionName = sessionName)
-        inForeground = true
         viewModelScope.launch {
             repo.connect(host = host, user = user, password = password, sessionName = sessionName)
         }
@@ -36,31 +35,12 @@ class AttachViewModel : ViewModel() {
 
     fun onAppBackground() {
         // Keep connection alive in background; do not proactively disconnect.
-        inForeground = false
-        lastBackgroundAtMs = System.currentTimeMillis()
     }
 
     fun onAppForeground() {
-        inForeground = true
         val params = lastConnectParams ?: return
         val st = state.value
         if (st.connected || st.connecting) return
-        val now = System.currentTimeMillis()
-        val sleptMs = (now - lastBackgroundAtMs).coerceAtLeast(0L)
-        val shouldForceReconnect = sleptMs >= 15_000L
-
-        if (shouldForceReconnect) {
-            viewModelScope.launch {
-                repo.connect(
-                    host = params.host,
-                    user = params.user,
-                    password = params.password,
-                    sessionName = params.sessionName,
-                    isReconnect = true
-                )
-            }
-            return
-        }
         if (st.phase == com.followcat.zagora.data.AttachPhase.Disconnected || st.phase == com.followcat.zagora.data.AttachPhase.Error) {
             viewModelScope.launch {
                 repo.connect(

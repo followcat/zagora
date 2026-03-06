@@ -12,8 +12,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,6 +71,8 @@ class SshAttachRepository(
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val _state = MutableStateFlow(AttachState())
     val state: StateFlow<AttachState> = _state.asStateFlow()
+    private val _incomingBytes = MutableSharedFlow<ByteArray>()
+    val incomingBytes: SharedFlow<ByteArray> = _incomingBytes.asSharedFlow()
 
     @Volatile
     private var sshSession: JschSession? = null
@@ -207,25 +212,15 @@ class SshAttachRepository(
             _state.update {
                 it.copy(
                     connecting = true,
-                    connected = true,
+                    connected = false,
                     phase = AttachPhase.Attaching,
                     errorCode = AttachErrorCode.None,
                     canRetry = false,
                     latencyMs = (System.currentTimeMillis() - startAt).coerceAtLeast(1),
-                    message = "Connected $cleanUser@$cleanHost. Attaching zellij..."
+                    message = "Connected $cleanUser@$cleanHost. Launching zellij..."
                 )
             }
             sendLine(buildStartupCommand(cleanSession))
-            _state.update {
-                it.copy(
-                    connecting = false,
-                    connected = true,
-                    phase = AttachPhase.Connected,
-                    errorCode = AttachErrorCode.None,
-                    canRetry = true,
-                    message = "Attach command sent for ${cleanSession.ifBlank { "default" }} (waiting remote output)"
-                )
-            }
         }.onFailure { err ->
             val (code, readable) = mapError(err)
             disconnect(updateState = false, cancelReconnectJob = !isReconnect)
@@ -325,6 +320,7 @@ class SshAttachRepository(
                     delay(25)
                     continue
                 }
+                _incomingBytes.emit(buf.copyOfRange(0, n))
                 val merged = if (pending.isEmpty()) {
                     buf.copyOfRange(0, n)
                 } else {
@@ -344,16 +340,23 @@ class SshAttachRepository(
                     ByteArray(0)
                 }
                 _state.update { st ->
-                    val merged = (st.output + chunk).takeLast(120_000)
+                    val mergedOutput = (st.output + chunk).takeLast(120_000)
                     val zellijMissing = chunk.contains("zellij not found", ignoreCase = true)
                     val newMsg = if (zellijMissing) {
                         "Failed to start zellij: not installed on remote host"
+                    } else if (st.phase == AttachPhase.Attaching || st.phase == AttachPhase.Reconnecting || st.phase == AttachPhase.Connecting) {
+                        "Attached to ${st.sessionName.ifBlank { "default" }}"
                     } else {
                         st.message
                     }
                     st.copy(
-                        output = merged,
+                        output = mergedOutput,
                         rawBytesIn = st.rawBytesIn + n,
+                        connecting = false,
+                        connected = true,
+                        phase = if (zellijMissing) AttachPhase.Error else if (
+                            st.phase == AttachPhase.Attaching || st.phase == AttachPhase.Reconnecting || st.phase == AttachPhase.Connecting
+                        ) AttachPhase.Connected else st.phase,
                         errorCode = if (zellijMissing) AttachErrorCode.ZellijMissing else st.errorCode,
                         message = newMsg
                     )
