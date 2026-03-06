@@ -93,6 +93,8 @@ import org.connectbot.terminal.ModifierManager
 import org.connectbot.terminal.Terminal as ConnectBotTerminal
 import org.connectbot.terminal.TerminalEmulatorFactory
 
+private const val ENABLE_TERMLIB_ATTACH = false
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun AttachScreen(
@@ -155,26 +157,30 @@ internal fun AttachScreen(
     val terminalPalette = terminalColorPalette()
     val terminalTypefaceFamily = remember(terminalFontPack) { terminalFontFamily(terminalFontPack) }
     val termlibTerminal = remember(target.host, target.name) {
-        runCatching {
-            TerminalEmulatorFactory.Companion.create(
-                Looper.getMainLooper(),
-                24,
-                64,
-                terminalPalette.defaultForeground,
-                terminalPalette.defaultBackground,
-                { bytes ->
-                    if (bytes.isNotEmpty()) onSendRawBytes(bytes)
-                },
-                {},
-                null,
-                { copied ->
-                    if (copied.isNotBlank()) {
-                        clipboard.setText(AnnotatedString(copied))
-                    }
-                },
-                null
-            )
-        }.getOrNull()
+        if (!ENABLE_TERMLIB_ATTACH) {
+            null
+        } else {
+            runCatching {
+                TerminalEmulatorFactory.Companion.create(
+                    Looper.getMainLooper(),
+                    24,
+                    64,
+                    terminalPalette.defaultForeground,
+                    terminalPalette.defaultBackground,
+                    { bytes ->
+                        if (bytes.isNotEmpty()) onSendRawBytes(bytes)
+                    },
+                    {},
+                    null,
+                    { copied ->
+                        if (copied.isNotBlank()) {
+                            clipboard.setText(AnnotatedString(copied))
+                        }
+                    },
+                    null
+                )
+            }.getOrNull()
+        }
     }
     val useFallbackTerminal = termlibTerminal == null
     var terminalViewportPx by remember(target.host, target.name) { mutableStateOf(IntSize.Zero) }
